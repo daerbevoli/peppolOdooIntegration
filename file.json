@@ -1,0 +1,76 @@
+{
+	"OrderNumber": "25458752",
+	"OrderDate": "2025-09-03",
+	"ExpiryDate": "2025-10-03",
+	"OrderType": "Invoice",
+  "OrderDirection": "Income",
+  "Customer": {
+   "Name": "Billit",
+   "VATNumber": "BE0563846944",
+   "PartyType": "Customer",
+   "Addresses": [
+        {
+        "AddressType": "InvoiceAddress",
+        "Name": "Billit",
+        "Street": "Oktrooiplein",
+        "StreetNumber": "1",
+        "City": "Ghent",
+        "Zipcode" : "9001",
+        "Box": "box1",
+        "Language" : "NL",
+        "CountryCode": "BE"
+        },
+        {
+        "AddressType": "DeliveryAddress",
+        "Name": "Billit",
+        "Street": "Oktrooiplein",
+        "StreetNumber": "1",
+        "City": "Ghent",
+				"Zipcode": "9001",
+        "Box": "301",
+        "CountryCode": "BE"
+        }
+   ]
+   },
+     "Customer": {
+   "Name": "NP Noord West Brabant",
+   "VATNumber": "BE0759529202",
+   "PartyType": "Customer",
+   "Identifiers": [
+        {
+        "IdentifierType": "CBE",
+        "Identifier": "0759529202"
+        }
+    ],
+   "Addresses": [
+        {
+        "AddressType": "InvoiceAddress",
+        "Name": "NP Noord West Brabant",
+        "Street": "Oktrooiplein",
+        "StreetNumber": "1a",
+        "City": "Ghent",
+        "Box": "301",
+        "CountryCode": "BE"
+        },
+        {
+        "AddressType": "DeliveryAddress",
+        "Name": "NP Noord West Brabant1",
+        "Street": "Oktrooiplein",
+        "StreetNumber": "1b",
+        "City": "Ghent",
+        "Zipcode" : "9001",
+        "Box": "b",
+        "CountryCode": "BE"
+        }
+   ]
+   },
+	"OrderLines": [
+		{
+			"Quantity": 10.0,
+			"Description": "Product Description",
+			"VATPercentage": 21.0,
+            "InclLeading": true,
+			"TotalIncl": 149.8
+		}
+	]
+}

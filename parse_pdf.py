@@ -1,6 +1,8 @@
 import pdfplumber
 import re
+import datetime
 from typing import List, Dict, Any
+import json
 
 def parse_eu_float(val: str) -> float:
     """Safely converts European formatted strings (1.234,56) to floats."""
@@ -92,6 +94,43 @@ def extract_items(page) -> List[Dict]:
 
     return items
 
+def extract_totals(text: str) -> Dict[str, Any]:
+    """Extracts summary totals (Basis, BTW, Totaal) from the footer table."""
+    totals = {
+        "basis_amount": 0.0,
+        "btw_0_amount": 0.0,
+        "btw_6_amount": 0.0,
+        "btw_21_amount": 0.0,
+        "total_amount": 0.0
+    }
+
+    # Extract Basis
+    basis_match = re.search(r"Basis\s+([\d.,]+)\s*€", text)
+    if basis_match:
+        totals["basis_amount"] = parse_eu_float(basis_match.group(1))
+
+    # Extract BTW 0% (Added for robustness)
+    btw0_match = re.search(r"Btw 0% op [\d.,]+\s*€\s+([\d.,]+)\s*€", text)
+    if btw0_match:
+        totals["btw_0_amount"] = parse_eu_float(btw0_match.group(1))
+
+    # Extract BTW 6%
+    btw6_match = re.search(r"Btw 6% op [\d.,]+\s*€\s+([\d.,]+)\s*€", text)
+    if btw6_match:
+        totals["btw_6_amount"] = parse_eu_float(btw6_match.group(1))
+
+    # Extract BTW 21%
+    btw21_match = re.search(r"Btw 21% op [\d.,]+\s*€\s+([\d.,]+)\s*€", text)
+    if btw21_match:
+        totals["btw_21_amount"] = parse_eu_float(btw21_match.group(1))
+
+    # Extract Total
+    total_match = re.search(r"Totaal\s+([\d.,]+)\s*€", text)
+    if total_match:
+        totals["total_amount"] = parse_eu_float(total_match.group(1))
+
+    return totals
+
 def parse_invoice(pdf_path: str) -> Dict:
     with pdfplumber.open(pdf_path) as pdf:
         page = pdf.pages[0]
@@ -100,12 +139,66 @@ def parse_invoice(pdf_path: str) -> Dict:
         return {
             "metadata": extract_invoice_metadata(full_text),
             "buyer": extract_buyer_info(page),
-            "items": extract_items(page)
+            "items": extract_items(page),
+            "totals": extract_totals(full_text)
         }
+
+def pdf_to_billit(parsed_invoice: Dict) -> Dict:
+    # Datums omzetten naar YYYY-MM-DD
+    invoice_dt = datetime.datetime.strptime(parsed_invoice["metadata"]["invoice_date"], "%d-%m-%Y")
+    due_dt = invoice_dt + datetime.timedelta(days=30)
+
+    # OrderLines opbouwen volgens de tabel (UnitPriceExcl & VATPercentage)
+    order_lines = []
+    for item in parsed_invoice["items"]:
+        order_lines.append({
+            "Quantity": item["quantity"],
+            "UnitPriceExcl": item["unit_price"],
+            "Description": item["description"],
+        })
+
+    # De JSON bouwen volgens jouw specifieke documentatie
+    payload = {
+        "OrderType": "Invoice",
+        "OrderDirection": "Income", # Per doc: Sales = Income
+        "OrderNumber": parsed_invoice["metadata"]["invoice_number"],
+        "OrderDate": invoice_dt.strftime("%Y-%m-%d"),
+        "ExpiryDate": due_dt.strftime("%Y-%m-%d"),
+        "Currency": "EUR",
+        "TotalAmount": parsed_invoice["totals"]["total_amount"],
+        "TotalVatAmount": (
+                parsed_invoice["totals"]["btw_0_amount"] +
+                parsed_invoice["totals"]["btw_6_amount"] +
+                parsed_invoice["totals"]["btw_21_amount"]
+        ),
+        "Customer": {
+            "Name": parsed_invoice["buyer"]["name"],
+            "VATNumber": parsed_invoice["buyer"]["vat"].replace(".", "").replace(" ", "") if parsed_invoice["buyer"]["vat"] else "",
+            "PartyType": "Customer",
+            "Addresses": [
+                {
+                    "AddressType": "InvoiceAddress",
+                    "Name": parsed_invoice["buyer"]["name"],
+                    "Street": parsed_invoice["buyer"]["street"] or "",
+                    "City": parsed_invoice["buyer"]["city"] or "",
+                    "Zipcode": parsed_invoice["buyer"]["zipcode"] or "",
+                    "CountryCode": "BE"
+                }
+            ]
+        },
+        "OrderLines": order_lines
+    }
+    return payload
+
+def convert(pdf_path: str) -> Dict[str, Any]:
+    data = parse_invoice(pdf_path)
+    billit_invoice = pdf_to_billit(data)
+
+    return billit_invoice
+
 
 if __name__ == "__main__":
     PDF_PATH = "Faktuur20251220102357.pdf"
     data = parse_invoice(PDF_PATH)
-    import json
-
-    print(json.dumps(data, indent=4))
+    billit_invoice = pdf_to_billit(data)
+    print(billit_invoice)
