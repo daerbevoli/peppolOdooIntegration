@@ -198,7 +198,7 @@ def convert(pdf_path: str) -> Dict[str, Any]:
 
 
 if __name__ == "__main__":
-    PDF_PATH = "Faktuur20251220102357.pdf"
+    PDF_PATH = "Factuur/Faktuur20251220102357.pdf"
     data = parse_invoice(PDF_PATH)
     billit_invoice = pdf_to_billit(data)
     print(billit_invoice)
