@@ -23,10 +23,14 @@ def extract_invoice_metadata(text: str) -> Dict:
     inv_match = re.search(r"Faktuur\s+(\d+)", text)
     # Matches 'Datum 19-12-2025' [cite: 9]
     date_match = re.search(r"Datum\s+(\d{2}-\d{2}-\d{4})", text)
+    if date_match:
+        date = date_match.group(1)
+        dd, mm, yyyy = date.split("-")
+        new_date_str = f"{yyyy}-{mm}-{dd}"
 
     return {
         "invoice_number": inv_match.group(1) if inv_match else None,
-        "invoice_date": date_match.group(1) if date_match else None
+        "invoice_date": new_date_str if date_match else None,
     }
 
 def extract_buyer_info(page) -> Dict[str, Any]:
@@ -49,7 +53,7 @@ def extract_buyer_info(page) -> Dict[str, Any]:
         vat_match = vat_pattern.search(line)
         phone_match = phone_pattern.search(line)
         if vat_match:
-            info["vat"] = vat_match.group(0)
+            info["vat"] = vat_match.group(0).replace(" ", "").replace(".", "")
             continue
 
         if phone_match:
@@ -110,17 +114,17 @@ def extract_totals(text: str) -> Dict[str, Any]:
         totals["basis_amount"] = parse_eu_float(basis_match.group(1))
 
     # Extract BTW 0% (Added for robustness)
-    btw0_match = re.search(r"Btw 0% op [\d.,]+\s*€\s+([\d.,]+)\s*€", text)
+    btw0_match = re.search(r"Btw 0% op ([\d.,]+)\s*€\s+([\d.,]+)\s*€", text)
     if btw0_match:
         totals["btw_0_amount"] = parse_eu_float(btw0_match.group(1))
 
     # Extract BTW 6%
-    btw6_match = re.search(r"Btw 6% op [\d.,]+\s*€\s+([\d.,]+)\s*€", text)
+    btw6_match = re.search(r"Btw 6% op ([\d.,]+)\s*€\s+([\d.,]+)\s*€", text)
     if btw6_match:
         totals["btw_6_amount"] = parse_eu_float(btw6_match.group(1))
 
     # Extract BTW 21%
-    btw21_match = re.search(r"Btw 21% op [\d.,]+\s*€\s+([\d.,]+)\s*€", text)
+    btw21_match = re.search(r"Btw 21% op ([\d.,]+)\s*€\s+([\d.,]+)\s*€", text)
     if btw21_match:
         totals["btw_21_amount"] = parse_eu_float(btw21_match.group(1))
 
@@ -143,62 +147,9 @@ def parse_invoice(pdf_path: str) -> Dict:
             "totals": extract_totals(full_text)
         }
 
-def pdf_to_billit(parsed_invoice: Dict) -> Dict:
-    # Datums omzetten naar YYYY-MM-DD
-    invoice_dt = datetime.datetime.strptime(parsed_invoice["metadata"]["invoice_date"], "%d-%m-%Y")
-    due_dt = invoice_dt + datetime.timedelta(days=30)
-
-    # OrderLines opbouwen volgens de tabel (UnitPriceExcl & VATPercentage)
-    order_lines = []
-    for item in parsed_invoice["items"]:
-        order_lines.append({
-            "Quantity": item["quantity"],
-            "UnitPriceExcl": item["unit_price"],
-            "Description": item["description"],
-        })
-
-    # De JSON bouwen volgens jouw specifieke documentatie
-    payload = {
-        "OrderType": "Invoice",
-        "OrderDirection": "Income", # Per doc: Sales = Income
-        "OrderNumber": parsed_invoice["metadata"]["invoice_number"],
-        "OrderDate": invoice_dt.strftime("%Y-%m-%d"),
-        "ExpiryDate": due_dt.strftime("%Y-%m-%d"),
-        "Currency": "EUR",
-        "TotalAmount": parsed_invoice["totals"]["total_amount"],
-        "TotalVatAmount": (
-                parsed_invoice["totals"]["btw_0_amount"] +
-                parsed_invoice["totals"]["btw_6_amount"] +
-                parsed_invoice["totals"]["btw_21_amount"]
-        ),
-        "Customer": {
-            "Name": parsed_invoice["buyer"]["name"],
-            "VATNumber": parsed_invoice["buyer"]["vat"].replace(".", "").replace(" ", "") if parsed_invoice["buyer"]["vat"] else "",
-            "PartyType": "Customer",
-            "Addresses": [
-                {
-                    "AddressType": "InvoiceAddress",
-                    "Name": parsed_invoice["buyer"]["name"],
-                    "Street": parsed_invoice["buyer"]["street"] or "",
-                    "City": parsed_invoice["buyer"]["city"] or "",
-                    "Zipcode": parsed_invoice["buyer"]["zipcode"] or "",
-                    "CountryCode": "BE"
-                }
-            ]
-        },
-        "OrderLines": order_lines
-    }
-    return payload
-
-def convert(pdf_path: str) -> Dict[str, Any]:
-    data = parse_invoice(pdf_path)
-    billit_invoice = pdf_to_billit(data)
-
-    return billit_invoice
 
 
 if __name__ == "__main__":
-    PDF_PATH = "Factuur/Faktuur20251220102357.pdf"
+    PDF_PATH = "Factuur/20260107135323Faktuur.pdf"
     data = parse_invoice(PDF_PATH)
-    billit_invoice = pdf_to_billit(data)
-    print(billit_invoice)
+    print(data)
