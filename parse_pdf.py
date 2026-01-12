@@ -147,6 +147,17 @@ def parse_invoice(pdf_path: str) -> Dict:
             "totals": extract_totals(full_text)
         }
 
+def generate_filename(metadata):
+    """
+    Creates a safe filename: Company_YYYYMMDD_InvNum.pdf
+    """
+    # Clean company name
+    safe_company = "".join([c for c in metadata['company'] if c.isalnum() or c in (' ', '')]).strip().replace(" ", "")
+
+    # Clean date (Remove separators like / - .)
+    safe_date = re.sub(r"[-./]", "", metadata['date'])
+
+    return f"{safe_company}_{safe_date}_{metadata['invoice_num']}.pdf"
 
 
 if __name__ == "__main__":
