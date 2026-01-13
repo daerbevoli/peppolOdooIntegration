@@ -63,7 +63,7 @@ def extract_buyer_info(page) -> Dict[str, Any]:
         # Match Address Anchor (e.g., 9200 DENDERMONDE) [cite: 7]
         zip_match = zip_city_pattern.match(line)
         if zip_match:
-            info["zipcode"] = zip_match.group("zip")
+            info["zip"] = zip_match.group("zip")
             info["city"] = zip_match.group("city")
             # Logic: Street is 1 line above [cite: 6], Name is 2 lines above [cite: 5]
             if i - 1 >= 0: info["street"] = lines[i - 1]
