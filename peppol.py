@@ -1,8 +1,12 @@
 import base64
 import xmlrpc.client
 
-from parse_pdf import parse_invoice, generate_filename
+from parse_pdf import parse_invoice
 
+url = "https://skbctesting.odoo.com"
+db = "skbctesting"
+username = "skbc.bv@gmail.com"
+api_key = "7e231b61aa3afc6c8c8fae66fcf60c35e22f4e2d"
 
 def connect():
     common = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common")
@@ -28,6 +32,7 @@ def get_sales_account_id(models, db, uid, api_key, code='700000'):
     # return sale code = sales rendered in Belgium (merchandises)
     return account_id[0]
 
+# % put tax x % S on non active set tax to default
 def get_sale_tax_id(models, db, uid, api_key, rate):
     tax_ids = models.execute_kw(
         db, uid, api_key,
@@ -35,7 +40,6 @@ def get_sale_tax_id(models, db, uid, api_key, rate):
         [[
             ('type_tax_use', '=', 'sale'),
             ('amount', '=', rate),
-            ('name', 'ilike', f'{int(rate)}% S'),
             ('active', '=', True)
         ]],
         {'limit': 1}
@@ -104,7 +108,7 @@ def get_create_partner(models, uid, api_key, customer_info: dict) -> int:
                 'zip': customer_info["zip"],
                 'country_id': country_id,  # Belgium
                 'vat': customer_info["vat"],
-                'lang': 'en_US',
+                'lang': 'nl_BE',
                 'is_company': True,
 
                 # Accounting settings for Peppol e-invoicing
@@ -117,33 +121,51 @@ def get_create_partner(models, uid, api_key, customer_info: dict) -> int:
     return partner_id
 
 
-def create_invoice_lines(customer_totals: dict) -> list:
+def create_invoice_lines(models, uid, customer_totals: dict) -> list:
 
-    # TODO: dont add lines with 0 amount
     account_id = get_sales_account_id(models, db, uid, api_key, code='700000')
+    tax_id_0 = get_sale_tax_id(models, db, uid, api_key, 0.0)
     tax_id_6 = get_sale_tax_id(models, db, uid, api_key, 6.0)
     tax_id_21 = get_sale_tax_id(models, db, uid, api_key, 21.0)
 
-    line1 = (0, 0, {
-        'name': 'Food and beverages',
-        'quantity': 1,
-        'price_unit': float(customer_totals["btw_6_amount"]),
-        'account_id': account_id,
-        'tax_ids': [(6, 0, [tax_id_6])],
-    })
+    btw_0_total = float(customer_totals["btw_0_amount"])
+    btw_6_total = float(customer_totals["btw_6_amount"])
+    btw_21_total = float(customer_totals["btw_21_amount"])
 
-    line2 = (0, 0, {
-        'name': 'Standard/Non food',
-        'quantity': 1,
-        'price_unit': float(customer_totals["btw_21_amount"]),
-        'account_id': account_id,
-        'tax_ids': [(6, 0, [tax_id_21])],
-    })
+    invoice_lines = []
 
-    return [line1, line2]
+    if btw_0_total > 0:
+        line0 = (0, 0, {
+            'name': 'Exempt/Zero rated',
+            'quantity': 1,
+            'price_unit': btw_0_total,
+            'account_id': account_id,
+            'tax_ids': [(6, 0, [tax_id_0])],
+        })
+        invoice_lines.append(line0)
+    if btw_6_total > 0:
+        line1 = (0, 0, {
+            'name': 'Food and beverages',
+            'quantity': 1,
+            'price_unit': btw_6_total,
+            'account_id': account_id,
+            'tax_ids': [(6, 0, [tax_id_6])],
+        })
+        invoice_lines.append(line1)
+    if btw_21_total > 0:
+        line2 = (0, 0, {
+            'name': 'Standard/Non food',
+            'quantity': 1,
+            'price_unit': btw_21_total,
+            'account_id': account_id,
+            'tax_ids': [(6, 0, [tax_id_21])],
+        })
+        invoice_lines.append(line2)
+
+    return invoice_lines
 
 
-def create_invoice(partner_id: int, customer_meta: dict, invoice_lines: list, invoice_pdf: str = None) -> int:
+def create_invoice(models, uid, partner_id: int, customer_meta: dict, invoice_lines: list, invoice_pdf: str = None) -> int:
 
     journal_id = get_journal_id(models, db, uid, api_key, journal_code='VF')
 
@@ -181,39 +203,39 @@ def create_invoice(partner_id: int, customer_meta: dict, invoice_lines: list, in
 
     return invoice_id
 
-if __name__ == "__main__":
-    url = "https://skbctesting.odoo.com"
-    db = "skbctesting"
-    username = "skbc.bv@gmail.com"
-    api_key = "7e231b61aa3afc6c8c8fae66fcf60c35e22f4e2d"
+def create_post_invoice(models, uid, invoice_pdf: str = None):
 
-    invoice_pdf = "20251231164713Faktuur.pdf"
+    try:
+        # 2. Parse PDF and get customer data
+        customer_metadata, customer_info, _, customer_totals = get_customer_data(invoice_pdf)
+        print(get_create_partner(models, uid, api_key, customer_info))
+        # 3. Get or create partner and create invoice lines
+        partner_id = get_create_partner(models, uid, api_key, customer_info)
+        invoice_lines = create_invoice_lines(models, uid, customer_totals)
 
-    # 1. Connect to Odoo
-    models, uid = connect()
+        # 5. Create invoice
+        invoice_id = create_invoice(models, uid, partner_id, customer_metadata, invoice_lines, invoice_pdf)
 
-    # 2. Parse PDF and get customer data
-    customer_metadata, customer_info, _, customer_totals = get_customer_data(invoice_pdf)
-    print(get_create_partner(models, uid, api_key, customer_info))
-    # 3. Get or create partner and create invoice lines
-    partner_id = get_create_partner(models, uid, api_key, customer_info)
-    invoice_lines = create_invoice_lines(customer_totals)
+        # 6. Post it
+        models.execute_kw(
+            db, uid, api_key,
+            'account.move', 'action_post',
+            [[invoice_id]]
+        )
+        return True
+    except Exception as e:
+        print("Error creating and posting invoice:", str(e))
+        return False
 
-    # 5. Create invoice
-    invoice_id = create_invoice(partner_id, customer_metadata, invoice_lines, invoice_pdf)
 
-    # 6. Post it
-    models.execute_kw(
-        db, uid, api_key,
-        'account.move', 'action_post',
-        [[invoice_id]]
-    )
-
-    # TODO: Send invoice via Peppol test somehow
-    # # Send invoice
-    # models.execute_kw(
-    #     db, uid, api_key,
-    #     'account.move', 'action_invoice_sent',
-    #     [[invoice_id]]
-    # )
+# if __name__ == "__main__":
+#
+#
+#     # TODO: Send invoice via Peppol test somehow
+#     # # Send invoice
+#     # models.execute_kw(
+#     #     db, uid, api_key,
+#     #     'account.move', 'action_invoice_sent',
+#     #     [[invoice_id]]
+#     # )
 
