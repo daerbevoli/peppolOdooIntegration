@@ -5,33 +5,26 @@ import shutil
 import re
 import queue
 import threading
-
-import pdfplumber
 import tkinter as tk
 from tkinter import scrolledtext
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-from peppol import connect, create_post_invoice
-
+from peppol import OdooClient
 
 def get_base_path():
-    """ Get absolute path to resource """
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
-    else:
-        return os.path.dirname(os.path.abspath(__file__))
+    return os.path.dirname(os.path.abspath(__file__))
 
-# Get the folder where this script is actually located
+
 BASE_DIR = get_base_path()
-
-# Define folders relative to the script location
 WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
 PROCESSED_FOLDER = os.path.join(BASE_DIR, "Factuur_processed")
 ERROR_FOLDER = os.path.join(BASE_DIR, "Factuur_errors")
 TEMP_FOLDER = os.path.join(BASE_DIR, "Factuur_temp")
 
-# A thread-safe queue to pass files from Watchdog to the GUI
+# Queue for files detected by Watchdog
 file_queue = queue.Queue()
 
 class PDFHandler(FileSystemEventHandler):
@@ -44,45 +37,57 @@ class App:
     def __init__(self, root):
         self.root = root
         self.root.title("Peppol Odoo Integration")
-        self.root.geometry("600x400")
+        self.root.geometry("700x500")
 
         self.observer = None
         self.is_running = False
 
-        self.models, self.uid = connect()
+        # Connect to Odoo
+        self.odoo = OdooClient(
+            url="https://skbctesting.odoo.com",
+            db="skbctesting",
+            username="skbc.bv@gmail.com",
+            api_key="7e231b61aa3afc6c8c8fae66fcf60c35e22f4e2d"
+        )
 
-        # -- GUI COMPONENTS ---
+        try:
+            self.odoo.connect()
+            self.log("Connected to Odoo successfully.", "success")
+        except Exception as e:
+            self.log(f"Odoo Connection Failed: {e}", "error")
 
-        # 1. Header Frame
+        # --- GUI COMPONENTS ---
         header_frame = tk.Frame(root)
         header_frame.pack(pady=10, fill=tk.X, padx=20)
 
-        # Status Label
-        self.status_label = tk.Label(root, text="System: IDLE", fg="green", font=("Arial", 12, "bold"))
-        self.status_label.pack(pady=10)
+        self.status_label = tk.Label(root, text="System: IDLE", fg="gray", font=("Arial", 12, "bold"))
+        self.status_label.pack(pady=5)
 
-        # Toggle Button
         self.btn_toggle = tk.Button(header_frame, text="START Monitoring",
                                     command=self.toggle_monitoring,
                                     bg="#90ee90", font=("Arial", 10, "bold"), width=20)
         self.btn_toggle.pack(side=tk.RIGHT)
 
-        # Log Window
         tk.Label(root, text="Activity Log:", font=("Arial", 10)).pack(anchor="w", padx=20)
-        self.log_area = scrolledtext.ScrolledText(root, width=70, height=15, state='disabled')
-        self.log_area.pack(pady=10)
+        self.log_area = scrolledtext.ScrolledText(root, width=80, height=20, state='disabled')
+        self.log_area.pack(pady=10, padx=20)
 
-        # Ensure folders exist
-        for folder in [PROCESSED_FOLDER, ERROR_FOLDER, TEMP_FOLDER]:
+        # Configure log tags
+        self.log_area.tag_config("error", foreground="red")
+        self.log_area.tag_config("success", foreground="green")
+
+        # Ensure ALL folders exist
+        for folder in [WATCH_FOLDER, PROCESSED_FOLDER, ERROR_FOLDER, TEMP_FOLDER]:
             os.makedirs(folder, exist_ok=True)
 
-        self.log(f"System Ready. Target: {os.path.abspath(WATCH_FOLDER)}")
-        self.root.after(100, self.process_queue)
+        self.log(f"System Ready. Watching: {os.path.abspath(WATCH_FOLDER)}")
 
-        self.log_area.tag_config("error", foreground="red")
+        # Start the queue checker loop
+        self.root.after(100, self.check_queue)
+
+        self.start_monitoring()
 
     def toggle_monitoring(self):
-        """Switches between Start and Stop states"""
         if self.is_running:
             self.stop_monitoring()
         else:
@@ -90,12 +95,9 @@ class App:
 
     def start_monitoring(self):
         if self.is_running: return
-
-        # Create a FRESH observer every time we start
         self.observer = Observer()
         self.observer.schedule(PDFHandler(), WATCH_FOLDER, recursive=False)
         self.observer.start()
-
         self.is_running = True
         self.status_label.config(text="Status: RUNNING", fg="green")
         self.btn_toggle.config(text="STOP Monitoring", bg="#ffcccc")
@@ -103,113 +105,112 @@ class App:
 
     def stop_monitoring(self):
         if not self.is_running or not self.observer: return
-
         self.observer.stop()
         self.observer.join()
         self.observer = None
-
         self.is_running = False
         self.status_label.config(text="Status: STOPPED", fg="red")
         self.btn_toggle.config(text="START Monitoring", bg="#90ee90")
         self.log(">>> Monitoring STOPPED")
 
     def log(self, message, tag=None):
-        """Thread-safe logging to the text box"""
-        self.log_area.config(state='normal')
-        timestamp = time.strftime("%H:%M:%S")
-        self.log_area.insert(tk.END, f"[{timestamp}] {message}\n", tag)
-        self.log_area.see(tk.END)
-        self.log_area.config(state='disabled')
-
-
-    def process_queue(self):
         """
-        This function runs on the MAIN thread every 100ms.
-        It checks if Watchdog put anything in the queue.
+        Thread-safe logging.
+        Uses root.after_idle to ensure the GUI update happens on the main thread.
         """
+
+        def _update():
+            self.log_area.config(state='normal')
+            timestamp = time.strftime("%H:%M:%S")
+            self.log_area.insert(tk.END, f"[{timestamp}] {message}\n", tag)
+            self.log_area.see(tk.END)
+            self.log_area.config(state='disabled')
+
+        self.root.after_idle(_update)
+
+    def check_queue(self):
+        """ Checks queue and spawns a worker thread for new files so GUI doesn't freeze """
         try:
-            # Check if there is a file in the queue (non-blocking)
             while True:
                 file_path = file_queue.get_nowait()
-                self.run_workflow(self.models, self.uid, file_path)
+                # Spawn a thread to handle the heavy lifting
+                threading.Thread(target=self.process_invoice_worker, args=(file_path,), daemon=True).start()
         except queue.Empty:
             pass
+        finally:
+            self.root.after(100, self.check_queue)
 
-        # Schedule this function to run again in 100ms
-        self.root.after(100, self.process_queue)
-
-    def run_workflow(self, models, uid, file_path):
+    def process_invoice_worker(self, file_path):
+        """ This runs in a background thread """
         filename = os.path.basename(file_path)
-        self.log(f"Detected: {filename}")
+        self.log(f"Detected: {filename} - Waiting for file ready...")
 
         if not self.wait_for_file_ready(file_path):
-            self.log(f"Error: File locked {filename}", "error")
+            self.log(f"Error: File locked or inaccessible {filename}", "error")
+            move_file(file_path, ERROR_FOLDER, filename)  # Move aside so we don't retry forever
             return
 
         try:
-            # 1. Parse
-            self.log("Parsing PDF and creating invoice...")
-            invoice_created = create_post_invoice(models, uid, file_path)
-            self.log("Invoice created in Odoo", "success")
+            self.log(f"Processing: {filename}...")
 
-            if (invoice_created):
+            # Use the method on the class instance
+            # It now returns a tuple: (success, message)
+            success, message = self.odoo.process_invoice(file_path)
+
+            if success:
                 move_file(file_path, PROCESSED_FOLDER, filename)
+                self.log(f"Success: {message}", "success")
             else:
                 move_file(file_path, ERROR_FOLDER, filename)
+                # Now we see the REAL error message in the UI!
+                self.log(f"Failure: {message}", "error")
 
         except Exception as e:
-            self.log(f"Failed: {e}", "error")
+            self.log(f"Exception processing {filename}: {e}", "error")
             move_file(file_path, ERROR_FOLDER, filename)
-            self.log_area.tag_config("error", foreground="red")
 
-
-    # --- HELPER FUNCTION ---
     def wait_for_file_ready(self, file_path, timeout=5):
         start_time = time.time()
         while time.time() - start_time < timeout:
             try:
-                with open(file_path, 'ab'):
-                    pass
+                # Try to rename the file to itself; this usually fails if file is open/locked
+                os.rename(file_path, file_path)
                 return True
             except OSError:
                 time.sleep(0.5)
         return False
 
 
-# --- LOGIC FUNCTIONS ---
-
-def generate_filename(metadata):
-    """
-    Creates a safe filename: Company_YYYYMMDD_InvNum.pdf
-    """
-    # Clean company name
-    safe_company = "".join([c for c in metadata['company'] if c.isalnum() or c in (' ', '')]).strip().replace(" ", "")
-
-    # Clean date (Remove separators like / - .)
-    safe_date = re.sub(r"[-./]", "", metadata['date'])
-
-    return f"{safe_company}_{safe_date}_{metadata['invoice_num']}.pdf"
-
+# --- UTILS ---
 
 def move_file(src_path, dest_folder, new_filename):
+    """ Moves file with collision handling """
+    if not os.path.exists(src_path): return  # File might have moved already
+
     if not os.path.exists(dest_folder): os.makedirs(dest_folder)
     dest_path = os.path.join(dest_folder, new_filename)
+
     base, ext = os.path.splitext(new_filename)
     counter = 1
     while os.path.exists(dest_path):
         dest_path = os.path.join(dest_folder, f"{base}_{counter}{ext}")
         counter += 1
-    shutil.move(src_path, dest_path)
+
+    try:
+        shutil.move(src_path, dest_path)
+    except Exception as e:
+        print(f"Error moving file: {e}")
 
 
 if __name__ == "__main__":
     root = tk.Tk()
     app = App(root)
 
-    # Handle clean exit on window close
+
     def on_closing():
         app.stop_monitoring()
         root.destroy()
+        sys.exit(0)
 
     root.protocol("WM_DELETE_WINDOW", on_closing)
     root.mainloop()
