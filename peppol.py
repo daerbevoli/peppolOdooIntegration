@@ -141,6 +141,7 @@ class OdooClient:
                 'partner_id': partner_id,
                 'invoice_date': meta.get("invoice_date"),
                 'invoice_line_ids': invoice_lines,
+                'ref': meta.get("invoice_number"),
             }
 
             invoice_id = self.models.execute_kw(self.db, self.uid, self.api_key,
@@ -227,5 +228,5 @@ if __name__ == "__main__":
             api_key="7e231b61aa3afc6c8c8fae66fcf60c35e22f4e2d"
         )
     client.connect()
-    love = client.send_peppol_verify(19365)
+    love = client.create_post_invoice(19365)
     print(love)
