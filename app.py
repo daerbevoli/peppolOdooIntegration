@@ -2,7 +2,6 @@ import os
 import sys
 import time
 import shutil
-import re
 import queue
 import threading
 import tkinter as tk
@@ -22,7 +21,6 @@ BASE_DIR = get_base_path()
 WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
 PROCESSED_FOLDER = os.path.join(BASE_DIR, "Factuur_processed")
 ERROR_FOLDER = os.path.join(BASE_DIR, "Factuur_errors")
-TEMP_FOLDER = os.path.join(BASE_DIR, "Factuur_temp")
 
 # Queue for files detected by Watchdog
 file_queue = queue.Queue()
@@ -32,6 +30,19 @@ class PDFHandler(FileSystemEventHandler):
         if event.is_directory or not event.src_path.lower().endswith('.pdf'):
             return
         file_queue.put(event.src_path)
+
+
+def wait_for_file_ready(file_path, timeout=5):
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            # Try to rename the file to itself; this usually fails if file is open/locked
+            os.rename(file_path, file_path)
+            return True
+        except OSError:
+            time.sleep(0.5)
+    return False
+
 
 class App:
     def __init__(self, root):
@@ -77,7 +88,7 @@ class App:
         self.log_area.tag_config("success", foreground="green")
 
         # Ensure ALL folders exist
-        for folder in [WATCH_FOLDER, PROCESSED_FOLDER, ERROR_FOLDER, TEMP_FOLDER]:
+        for folder in [WATCH_FOLDER, PROCESSED_FOLDER, ERROR_FOLDER]:
             os.makedirs(folder, exist_ok=True)
 
         self.log(f"System Ready. Watching: {os.path.abspath(WATCH_FOLDER)}")
@@ -95,9 +106,13 @@ class App:
 
     def start_monitoring(self):
         if self.is_running: return
+
+        self.scan_existing_files()
+
         self.observer = Observer()
         self.observer.schedule(PDFHandler(), WATCH_FOLDER, recursive=False)
         self.observer.start()
+
         self.is_running = True
         self.status_label.config(text="Status: RUNNING", fg="green")
         self.btn_toggle.config(text="STOP Monitoring", bg="#ffcccc")
@@ -105,9 +120,11 @@ class App:
 
     def stop_monitoring(self):
         if not self.is_running or not self.observer: return
+
         self.observer.stop()
         self.observer.join()
         self.observer = None
+
         self.is_running = False
         self.status_label.config(text="Status: STOPPED", fg="red")
         self.btn_toggle.config(text="START Monitoring", bg="#90ee90")
@@ -118,7 +135,6 @@ class App:
         Thread-safe logging.
         Uses root.after_idle to ensure the GUI update happens on the main thread.
         """
-
         def _update():
             self.log_area.config(state='normal')
             timestamp = time.strftime("%H:%M:%S")
@@ -127,6 +143,13 @@ class App:
             self.log_area.config(state='disabled')
 
         self.root.after_idle(_update)
+
+    def scan_existing_files(self):
+        self.log("Scanning for existing PDF files...")
+        for filename in os.listdir(WATCH_FOLDER):
+            if filename.lower().endswith(".pdf"):
+                full_path = os.path.join(WATCH_FOLDER, filename)
+                file_queue.put(full_path)
 
     def check_queue(self):
         """ Checks queue and spawns a worker thread for new files so GUI doesn't freeze """
@@ -145,7 +168,7 @@ class App:
         filename = os.path.basename(file_path)
         self.log(f"Detected: {filename} - Waiting for file ready...")
 
-        if not self.wait_for_file_ready(file_path):
+        if not wait_for_file_ready(file_path):
             self.log(f"Error: File locked or inaccessible {filename}", "error")
             move_file(file_path, ERROR_FOLDER, filename)  # Move aside so we don't retry forever
             return
@@ -153,32 +176,21 @@ class App:
         try:
             self.log(f"Processing: {filename}...")
 
-            # Use the method on the class instance
-            # It now returns a tuple: (success, message)
-            success, message = self.odoo.process_invoice(file_path)
+            invoice_id, invoice_message = self.odoo.create_post_invoice(file_path)
+            self.log(invoice_message)
+            success, peppol_message = self.odoo.send_peppol_verify(invoice_id)
 
             if success:
                 move_file(file_path, PROCESSED_FOLDER, filename)
-                self.log(f"Success: {message}", "success")
+                self.log(f"Success: {peppol_message}", "success")
             else:
                 move_file(file_path, ERROR_FOLDER, filename)
                 # Now we see the REAL error message in the UI!
-                self.log(f"Failure: {message}", "error")
+                self.log(f"Failure: {peppol_message}", "error")
 
         except Exception as e:
             self.log(f"Exception processing {filename}: {e}", "error")
             move_file(file_path, ERROR_FOLDER, filename)
-
-    def wait_for_file_ready(self, file_path, timeout=5):
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            try:
-                # Try to rename the file to itself; this usually fails if file is open/locked
-                os.rename(file_path, file_path)
-                return True
-            except OSError:
-                time.sleep(0.5)
-        return False
 
 
 # --- UTILS ---

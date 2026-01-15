@@ -119,7 +119,7 @@ class OdooClient:
 
         return lines
 
-    def process_invoice(self, file_path):
+    def create_post_invoice(self, file_path):
         """
         Main workflow: Parse -> Partner -> Lines -> Invoice -> Post
         Returns: (Success: bool, Message: str)
@@ -166,16 +166,57 @@ class OdooClient:
             self.models.execute_kw(self.db, self.uid, self.api_key,
                                    'account.move', 'action_post', [[invoice_id]])
 
-            return True, f"Invoice {invoice_id} created & posted."
+            return invoice_id, f"Invoice {invoice_id} created & posted."
 
         except Exception as e:
             # Return the error message so the UI can log it
-            return False, str(e)
+            return None, str(e)
 
-# This mimics your old interface but uses the class internally
-def create_post_invoice(odoo_client, file_path):
-    # Notice we pass the client object, not raw models/uid
-    return odoo_client.process_invoice(file_path)
+    def send_peppol_verify(self, invoice_id):
+        invoice = self.models.execute_kw(
+            self.db, self.uid, self.api_key,
+            'account.move', 'read', [[invoice_id]],
+            {'fields': ['state', 'peppol_move_state', 'partner_id']} )[0]
+
+        partner_id = invoice['partner_id'][0] # get the id not the name
+
+        partner_on_peppol = self.models.execute_kw(
+            self.db, self.uid, self.api_key,
+            'res.partner', 'read', [[partner_id]],
+            {'fields': ['peppol_verification_state']})[0]['peppol_verification_state']
+
+        move_state = invoice['peppol_move_state']
+
+        if partner_on_peppol not in ('valid', 'not_valid'):
+            self.models.execute_kw(
+                self.db, self.uid, self.api_key,
+                'res.partner', 'button_account_peppol_check_partner_endpoint',
+                [[partner_id]])
+            return False, "Peppol partner verification triggered: send manually later"
+
+        if partner_on_peppol == 'not_valid':
+            return False, "Partner is not reachable via Peppol: check partner"
+
+        # Partner valid → check invoice state
+        if move_state == 'ready':
+            # self.models.execute_kw(
+            #     self.db, self.uid, self.api_key,
+            #     'account.move', 'action_invoice_sent', [[invoice_id]]
+            # )
+            return True, "Peppol send initiated"
+
+
+        if move_state == 'done':
+            return True, "Invoice already sent via Peppol"
+
+        if move_state == 'error':
+            return False, "Peppol error: check invoice Peppol log"
+
+        if move_state == 'skipped':
+            return False, "Peppol skipped due to configuration"
+
+        return False, f"Unhandled Peppol state: {move_state}"
+
 
 
 if __name__ == "__main__":
@@ -186,5 +227,5 @@ if __name__ == "__main__":
             api_key="7e231b61aa3afc6c8c8fae66fcf60c35e22f4e2d"
         )
     client.connect()
-    invoice = client.process_invoice("Factuur/20260101163627Faktuur.pdf")
-    print(invoice)
+    love = client.send_peppol_verify(19365)
+    print(love)
