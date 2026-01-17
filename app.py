@@ -186,7 +186,6 @@ class App:
                 self.log(f"Success: {peppol_message}", "success")
             else:
                 move_file(file_path, ERROR_FOLDER, filename)
-                # Now we see the REAL error message in the UI!
                 self.log(f"Failure: {peppol_message}", "error")
 
         except Exception as e:

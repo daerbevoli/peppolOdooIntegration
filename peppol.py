@@ -122,7 +122,7 @@ class OdooClient:
 
     def create_post_invoice(self, file_path):
         """
-        Main workflow: Parse -> Partner -> Lines -> Invoice -> Post
+        Workflow: Parse -> Partner -> Lines -> Invoice -> Post
         Returns: (Success: bool, Message: str)
         """
         try:
@@ -175,15 +175,13 @@ class OdooClient:
             return None, str(e)
 
     def send_peppol_verify(self, invoice_id):
+
         # 1. Fetch invoice and partner details
         invoice = self.models.execute_kw(
             self.db, self.uid, self.api_key,
             'account.move', 'read', [invoice_id],
             {'fields': ['state', 'peppol_move_state', 'partner_id']}
         )[0]
-
-        if invoice['state'] != 'posted':
-            return False, "Invoice must be in 'Posted' state to send via Peppol."
 
         partner_id = invoice['partner_id'][0]
         move_state = invoice.get('peppol_move_state')
@@ -216,8 +214,7 @@ class OdooClient:
         if move_state == 'error':
             return False, "Peppol error detected on move. Manual intervention required."
 
-        # 1. Trigger the standard action to get the required context
-        # This prepares the UBL/Peppol logic in the background
+        # 4. Initiate Peppol Send via Wizard
         action = self.models.execute_kw(
             self.db, self.uid, self.api_key,
             'account.move', 'action_invoice_sent', [[invoice_id]]
@@ -225,10 +222,9 @@ class OdooClient:
         context = action.get('context', {})
 
         try:
-            # 2. In Odoo 19, use the 'account.move.send.batch.wizard' model
-            # We must set 'sending_methods' as a list containing 'peppol'
+            # 5. Prepare wizard values
             wizard_vals = {
-                'move_id': [(6, 0, [invoice_id])],
+                'move_id': invoice_id,
                 'sending_methods': ['peppol'],  # Odoo 19 uses selection lists/tags here
             }
 
@@ -239,7 +235,7 @@ class OdooClient:
                 {'context': context}
             )
 
-            # 3. Trigger the action_send_and_print on the wizard
+            # 6. Execute the send action
             self.models.execute_kw(
                 self.db, self.uid, self.api_key,
                 'account.move.send.wizard', 'action_send_and_print',
@@ -248,6 +244,7 @@ class OdooClient:
             )
 
             return True, "Peppol batch send initiated."
+
 
         except Exception as e:
             return False, f"Failed to initiate Peppol send: {str(e)}"
