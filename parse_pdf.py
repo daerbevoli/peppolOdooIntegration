@@ -1,8 +1,9 @@
 import pdfplumber
 import re
-import datetime
 from typing import List, Dict, Any
-import json
+
+from nbformat.v1 import new_notebook
+
 
 def parse_eu_float(val: str) -> float:
     """Safely converts European formatted strings (1.234,56) to floats."""
@@ -19,10 +20,11 @@ def parse_eu_float(val: str) -> float:
 
 def extract_invoice_metadata(text: str) -> Dict:
     """Uses regex to find standard Belgian invoice headers."""
-    # Matches 'Faktuur 7216' [cite: 8]
+    # Matches 'Faktuur 7216'
     inv_match = re.search(r"Faktuur\s+(\d+)", text)
-    # Matches 'Datum 19-12-2025' [cite: 9]
+    # Matches 'Datum 19-12-2025'
     date_match = re.search(r"Datum\s+(\d{2}-\d{2}-\d{4})", text)
+    new_date_str = None
     if date_match:
         date = date_match.group(1)
         dd, mm, yyyy = date.split("-")
@@ -34,9 +36,9 @@ def extract_invoice_metadata(text: str) -> Dict:
     }
 
 def extract_buyer_info(page) -> Dict[str, Any]:
-    """Extracts buyer details by finding the postal code anchor[cite: 7]."""
+    """Extracts buyer details by finding the postal code anchor."""
     width, height = page.width, page.height
-    # Focus on the top right quadrant where buyer info typically resides [cite: 5, 6, 7]
+    # Focus on the top right quadrant where buyer info typically resides
     right_box = (width * 0.45, 0, width, height * 0.4)
     text = page.crop(right_box).extract_text()
 
@@ -49,7 +51,7 @@ def extract_buyer_info(page) -> Dict[str, Any]:
     zip_city_pattern = re.compile(r"^(?P<zip>\d{4})\s+(?P<city>.+)$")
 
     for i, line in enumerate(lines):
-        # Match VAT [cite: 12]
+        # Match VAT
         vat_match = vat_pattern.search(line)
         phone_match = phone_pattern.search(line)
         if vat_match:
@@ -60,12 +62,12 @@ def extract_buyer_info(page) -> Dict[str, Any]:
             info["phone"] = phone_match.group("num").strip()
             continue
 
-        # Match Address Anchor (e.g., 9200 DENDERMONDE) [cite: 7]
+        # Match Address Anchor (e.g., 9200 DENDERMONDE)
         zip_match = zip_city_pattern.match(line)
         if zip_match:
             info["zip"] = zip_match.group("zip")
             info["city"] = zip_match.group("city")
-            # Logic: Street is 1 line above [cite: 6], Name is 2 lines above [cite: 5]
+            # Logic: Street is 1 line above, Name is 2 lines above
             if i - 1 >= 0: info["street"] = lines[i - 1]
             if i - 2 >= 0: info["name"] = lines[i - 2]
 
