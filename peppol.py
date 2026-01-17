@@ -1,6 +1,7 @@
 import xmlrpc.client
 import base64
 import os
+
 from parse_pdf import parse_invoice
 
 
@@ -174,59 +175,102 @@ class OdooClient:
             return None, str(e)
 
     def send_peppol_verify(self, invoice_id):
+        # 1. Fetch invoice and partner details
         invoice = self.models.execute_kw(
             self.db, self.uid, self.api_key,
-            'account.move', 'read', [[invoice_id]],
-            {'fields': ['state', 'peppol_move_state', 'partner_id']} )[0]
+            'account.move', 'read', [invoice_id],
+            {'fields': ['state', 'peppol_move_state', 'partner_id']}
+        )[0]
 
-        partner_id = invoice['partner_id'][0] # get the id not the name
+        if invoice['state'] != 'posted':
+            return False, "Invoice must be in 'Posted' state to send via Peppol."
 
-        partner_on_peppol = self.models.execute_kw(
+        partner_id = invoice['partner_id'][0]
+        move_state = invoice.get('peppol_move_state')
+
+        # 2. Verify Partner Peppol Status
+        partner_data = self.models.execute_kw(
             self.db, self.uid, self.api_key,
-            'res.partner', 'read', [[partner_id]],
-            {'fields': ['peppol_verification_state']})[0]['peppol_verification_state']
+            'res.partner', 'read', [partner_id],
+            {'fields': ['peppol_verification_state']}
+        )[0]
 
-        move_state = invoice['peppol_move_state']
+        partner_on_peppol = partner_data['peppol_verification_state']
 
+        # Trigger verification if not done yet
         if partner_on_peppol not in ('valid', 'not_valid'):
             self.models.execute_kw(
                 self.db, self.uid, self.api_key,
                 'res.partner', 'button_account_peppol_check_partner_endpoint',
-                [[partner_id]])
-            return False, "Peppol partner verification triggered: send manually later"
+                [[partner_id]]
+            )
+            return False, "Peppol partner verification triggered. Please retry in a moment."
 
         if partner_on_peppol == 'not_valid':
-            return False, "Partner is not reachable via Peppol: check partner"
+            return False, "Partner is not reachable via Peppol. Please check Participant ID/EAS."
 
-        # Partner valid → check invoice state
-        if move_state == 'ready':
-            # self.models.execute_kw(
-            #     self.db, self.uid, self.api_key,
-            #     'account.move', 'action_invoice_sent', [[invoice_id]]
-            # )
-            return True, "Peppol send initiated"
-
-
+        # 3. Handle Peppol Transmission Logic
         if move_state == 'done':
-            return True, "Invoice already sent via Peppol"
+            return True, "Invoice already sent via Peppol."
 
         if move_state == 'error':
-            return False, "Peppol error: check invoice Peppol log"
+            return False, "Peppol error detected on move. Manual intervention required."
 
-        if move_state == 'skipped':
-            return False, "Peppol skipped due to configuration"
+        # 1. Trigger the standard action to get the required context
+        # This prepares the UBL/Peppol logic in the background
+        action = self.models.execute_kw(
+            self.db, self.uid, self.api_key,
+            'account.move', 'action_invoice_sent', [[invoice_id]]
+        )
+        context = action.get('context', {})
 
-        return False, f"Unhandled Peppol state: {move_state}"
+        try:
+            # 2. In Odoo 19, use the 'account.move.send.batch.wizard' model
+            # We must set 'sending_methods' as a list containing 'peppol'
+            wizard_vals = {
+                'move_id': [(6, 0, [invoice_id])],
+                'sending_methods': ['peppol'],  # Odoo 19 uses selection lists/tags here
+            }
 
+            # Create the wizard record
+            wizard_id = self.models.execute_kw(
+                self.db, self.uid, self.api_key,
+                'account.move.send.wizard', 'create', [wizard_vals],
+                {'context': context}
+            )
 
+            # 3. Trigger the action_send_and_print on the wizard
+            self.models.execute_kw(
+                self.db, self.uid, self.api_key,
+                'account.move.send.wizard', 'action_send_and_print',
+                [[wizard_id]],
+                {'context': context}
+            )
+
+            return True, "Peppol batch send initiated."
+
+        except Exception as e:
+            return False, f"Failed to initiate Peppol send: {str(e)}"
 
 if __name__ == "__main__":
-    client = OdooClient(
-            url="https://skbctesting.odoo.com",
-            db="skbctesting",
-            username="skbc.bv@gmail.com",
-            api_key="7e231b61aa3afc6c8c8fae66fcf60c35e22f4e2d"
-        )
-    client.connect()
-    love = client.create_post_invoice(19365)
-    print(love)
+    #
+    URL = "https://skbc.odoo.com"
+    DB = "skbc"
+    USERNAME = "skbc.bv@gmail.com"
+    API_KEY = "85d7f2585c7a7b27cb6f135cc3909872f570124e"
+
+    client = OdooClient(URL, DB, USERNAME, API_KEY)
+
+
+    # client = OdooClient(
+    #         url="https://skbctesting.odoo.com",
+    #         db="skbctesting",
+    #         username="skbc.bv@gmail.com",
+    #         api_key="7e231b61aa3afc6c8c8fae66fcf60c35e22f4e2d"
+    #     )
+
+    print(client.connect())
+
+    send = client.send_peppol_verify(26495)
+    print(send)
+

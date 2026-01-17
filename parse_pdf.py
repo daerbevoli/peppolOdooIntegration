@@ -2,9 +2,6 @@ import pdfplumber
 import re
 from typing import List, Dict, Any
 
-from nbformat.v1 import new_notebook
-
-
 def parse_eu_float(val: str) -> float:
     """Safely converts European formatted strings (1.234,56) to floats."""
     if not val:

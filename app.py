@@ -53,17 +53,18 @@ class App:
         self.observer = None
         self.is_running = False
 
+        self.URL = "https://skbc.odoo.com"
+        self.DB = "skbc"
+        self.USERNAME = "skbc.bv@gmail.com"
+        self.API_KEY = "85d7f2585c7a7b27cb6f135cc3909872f570124e"
+
         # Connect to Odoo
-        self.odoo = OdooClient(
-            url="https://skbctesting.odoo.com",
-            db="skbctesting",
-            username="skbc.bv@gmail.com",
-            api_key="7e231b61aa3afc6c8c8fae66fcf60c35e22f4e2d"
-        )
+        self.odoo = OdooClient(self.URL, self.DB, self.USERNAME, self.API_KEY)
 
         try:
             self.odoo.connect()
             self.log("Connected to Odoo successfully.", "success")
+            self.log(f"URL = {self.URL}")
         except Exception as e:
             self.log(f"Odoo Connection Failed: {e}", "error")
 
