@@ -13,32 +13,19 @@ from dotenv import load_dotenv
 
 from peppol import OdooClient
 
+def get_base_path():
+    return r"C:\Users\samee\OneDrive\Desktop\Facturen"
 
+BASE_DIR = get_base_path()
 
 logging.basicConfig(
-    filename="peppol.log",
+    filename= os.path.join(BASE_DIR, "peppol.log"),
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s"
 )
 
-def load_env():
-    if getattr(sys, 'frozen', False):
-        base_path = os.path.dirname(sys.executable)
-    else:
-        base_path = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-    load_dotenv(os.path.join(base_path, ".env"))
-
-load_env()
-
-
-def get_base_path():
-    if getattr(sys, 'frozen', False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
-
-
-BASE_DIR = get_base_path()
 WATCH_FOLDER = r"\\PC1\Factuur"
 SENT_FOLDER = os.path.join(BASE_DIR, "Factuur_sent")
 POSTED_FOLDER = os.path.join(BASE_DIR, "Factuur_not_sent")
