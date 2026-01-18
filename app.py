@@ -32,7 +32,6 @@ def load_env():
 load_env()
 
 
-
 def get_base_path():
     if getattr(sys, 'frozen', False):
         return os.path.dirname(sys.executable)
@@ -40,7 +39,7 @@ def get_base_path():
 
 
 BASE_DIR = get_base_path()
-WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
+WATCH_FOLDER = r"\\PC1\Factuur"
 SENT_FOLDER = os.path.join(BASE_DIR, "Factuur_sent")
 POSTED_FOLDER = os.path.join(BASE_DIR, "Factuur_not_sent")
 ERROR_FOLDER = os.path.join(BASE_DIR, "Factuur_error")
@@ -63,7 +62,7 @@ def wait_for_file_ready(file_path, timeout=5):
             os.rename(file_path, file_path)
             return True
         except OSError:
-            time.sleep(0.5)
+            time.sleep(1)
     return False
 
 
@@ -182,10 +181,9 @@ class App:
     def check_queue(self):
         """ Checks queue and spawns a worker thread for new files so GUI doesn't freeze """
         try:
-            while True:
-                file_path = file_queue.get_nowait()
-                # Spawn a thread to handle the heavy lifting
-                threading.Thread(target=self.process_invoice_worker, args=(file_path,), daemon=True).start()
+            file_path = file_queue.get_nowait()
+            # Spawn a thread to handle the heavy lifting
+            threading.Thread(target=self.process_invoice_worker, args=(file_path,), daemon=True).start()
         except queue.Empty:
             pass
         finally:
@@ -207,6 +205,10 @@ class App:
             self.log(f"Processing: {filename}...")
 
             invoice_id, new_filename, invoice_message = self.odoo.create_post_invoice(file_path)
+            if invoice_id is None:
+                self.log(invoice_message, "error")
+                move_file(file_path, ERROR_FOLDER, filename)
+                return
             self.log(invoice_message)
             success, peppol_message = self.odoo.send_peppol_verify(invoice_id)
 
@@ -220,8 +222,8 @@ class App:
                 logging.log(logging.ERROR, f"{peppol_message}: {new_filename}")
 
         except Exception as e:
-            self.log(f"Error processing {filename}: {e}", "error")
-            logging.log(logging.ERROR, f" exception error {filename}",)
+            self.log(f"Error processing {filename}: Manual intervention required", "error")
+            logging.log(logging.ERROR, f" exception error {filename}: {str(e)}",)
             move_file(file_path, ERROR_FOLDER, filename)
 
 
@@ -243,7 +245,7 @@ def move_file(src_path, dest_folder, new_filename):
     try:
         shutil.move(src_path, dest_path)
     except Exception as e:
-        logging.log(logging.ERROR, f"{e}", "error")
+        logging.log(logging.ERROR, f"{e}")
 
 
 if __name__ == "__main__":

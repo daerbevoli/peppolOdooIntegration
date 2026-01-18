@@ -157,6 +157,23 @@ class OdooClient:
                 'invoice_line_ids': invoice_lines,
                 'ref': meta.get("invoice_number"),
             }
+            filename = generate_filename(meta, buyer)
+            invoice_number = meta.get("invoice_number")
+
+            if not invoice_number:
+                return None, None, f"Invoice number missing in PDF {filename}"
+
+            existing_invoice = self.models.execute_kw(
+                self.db, self.uid, self.api_key,
+                'account.move', 'search',
+                [[('move_type', '=', 'out_invoice'), ('ref', '=', invoice_number)]],
+                {'limit': 1}
+            )
+
+            # check for duplicate
+            if existing_invoice:
+                invoice_id = existing_invoice[0]
+                return invoice_id, filename, f"Invoice {invoice_number} already exists."
 
             invoice_id = self.models.execute_kw(self.db, self.uid, self.api_key,
                                                 'account.move', 'create', [invoice_vals])
@@ -165,7 +182,6 @@ class OdooClient:
             with open(file_path, "rb") as f:
                 pdf_content = base64.b64encode(f.read()).decode('utf-8')
 
-            filename = generate_filename(meta, buyer)
             self.models.execute_kw(self.db, self.uid, self.api_key,
                 'ir.attachment', 'create',
             [{
@@ -181,7 +197,7 @@ class OdooClient:
             self.models.execute_kw(self.db, self.uid, self.api_key,
                                    'account.move', 'action_post', [[invoice_id]])
 
-            return invoice_id, filename, f"Invoice {filename} created & posted."
+            return invoice_id, filename, f"Invoice {invoice_number} created & posted."
 
         except Exception as e:
             return None, None, str(e)
@@ -222,14 +238,14 @@ class OdooClient:
             return False, "Peppol partner verification triggered. Please retry in a moment."
 
         if partner_on_peppol == 'not_valid':
-            return False, "Partner is not reachable via Peppol. Please check Participant ID/EAS."
+            return False, "Partner is not on Peppol. Manual intervention required."
 
         # 3. Handle Peppol Transmission Logic
         if move_state == 'done':
             return True, "Invoice already sent via Peppol."
 
         if move_state == 'error':
-            return False, "Peppol error detected on move. Manual intervention required."
+            return False, "Peppol error detected. Manual intervention required."
 
         # 4. Initiate Peppol Send via Wizard
         action = self.models.execute_kw(
