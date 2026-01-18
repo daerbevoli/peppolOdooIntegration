@@ -8,6 +8,14 @@ import tkinter as tk
 from tkinter import scrolledtext
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+import logging
+
+logging.basicConfig(
+    filename="peppol.log",
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s"
+)
+
 
 from peppol import OdooClient
 
@@ -19,8 +27,9 @@ def get_base_path():
 
 BASE_DIR = get_base_path()
 WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
-PROCESSED_FOLDER = os.path.join(BASE_DIR, "Factuur_processed")
-ERROR_FOLDER = os.path.join(BASE_DIR, "Factuur_errors")
+SENT_FOLDER = os.path.join(BASE_DIR, "Factuur_sent")
+POSTED_FOLDER = os.path.join(BASE_DIR, "Factuur_not_sent")
+ERROR_FOLDER = os.path.join(BASE_DIR, "Factuur_error")
 
 # Queue for files detected by Watchdog
 file_queue = queue.Queue()
@@ -64,9 +73,11 @@ class App:
         try:
             self.odoo.connect()
             self.log("Connected to Odoo successfully.", "success")
+            logging.log(logging.INFO, "Connected to Odoo successfully.")
             self.log(f"URL = {self.URL}")
         except Exception as e:
             self.log(f"Odoo Connection Failed: {e}", "error")
+            logging.log(logging.ERROR, "Odoo Connection Failed")
 
         # --- GUI COMPONENTS ---
         header_frame = tk.Frame(root)
@@ -89,13 +100,13 @@ class App:
         self.log_area.tag_config("success", foreground="green")
 
         # Ensure ALL folders exist
-        for folder in [WATCH_FOLDER, PROCESSED_FOLDER, ERROR_FOLDER]:
+        for folder in [WATCH_FOLDER, SENT_FOLDER, POSTED_FOLDER, ERROR_FOLDER]:
             os.makedirs(folder, exist_ok=True)
 
         self.log(f"System Ready. Watching: {os.path.abspath(WATCH_FOLDER)}")
 
         # Start the queue checker loop
-        self.root.after(100, self.check_queue)
+        self.root.after(250, self.check_queue)
 
         self.start_monitoring()
 
@@ -118,6 +129,7 @@ class App:
         self.status_label.config(text="Status: RUNNING", fg="green")
         self.btn_toggle.config(text="STOP Monitoring", bg="#ffcccc")
         self.log(">>> Monitoring STARTED")
+        logging.log(logging.INFO, "Monitoring started.")
 
     def stop_monitoring(self):
         if not self.is_running or not self.observer: return
@@ -130,6 +142,7 @@ class App:
         self.status_label.config(text="Status: STOPPED", fg="red")
         self.btn_toggle.config(text="START Monitoring", bg="#90ee90")
         self.log(">>> Monitoring STOPPED")
+        logging.log(logging.INFO, "Monitoring stopped.")
 
     def log(self, message, tag=None):
         """
@@ -162,34 +175,39 @@ class App:
         except queue.Empty:
             pass
         finally:
-            self.root.after(100, self.check_queue)
+            self.root.after(250, self.check_queue)
 
     def process_invoice_worker(self, file_path):
         """ This runs in a background thread """
         filename = os.path.basename(file_path)
         self.log(f"Detected: {filename} - Waiting for file ready...")
+        logging.log(logging.INFO, f"Detected: {filename} - Waiting for file ready.")
 
         if not wait_for_file_ready(file_path):
             self.log(f"Error: File locked or inaccessible {filename}", "error")
+            logging.log(logging.ERROR, "File locked or inaccessible")
             move_file(file_path, ERROR_FOLDER, filename)  # Move aside so we don't retry forever
             return
 
         try:
             self.log(f"Processing: {filename}...")
 
-            invoice_id, invoice_message = self.odoo.create_post_invoice(file_path)
+            invoice_id, new_filename, invoice_message = self.odoo.create_post_invoice(file_path)
             self.log(invoice_message)
             success, peppol_message = self.odoo.send_peppol_verify(invoice_id)
 
             if success:
-                move_file(file_path, PROCESSED_FOLDER, filename)
-                self.log(f"Success: {peppol_message}", "success")
+                move_file(file_path, SENT_FOLDER, new_filename)
+                self.log(f"{peppol_message} {new_filename}", "success")
+                logging.log(logging.INFO, f"{peppol_message} {new_filename}", "success")
             else:
-                move_file(file_path, ERROR_FOLDER, filename)
-                self.log(f"Failure: {peppol_message}", "error")
+                move_file(file_path, POSTED_FOLDER, new_filename)
+                self.log(f"{peppol_message} {new_filename}", "error")
+                logging.log(logging.ERROR, f"{peppol_message} {new_filename}", "error")
 
         except Exception as e:
-            self.log(f"Exception processing {filename}: {e}", "error")
+            self.log(f"Error processing {filename}: {e}", "error")
+            logging.log(logging.ERROR, f"{filename}", "error")
             move_file(file_path, ERROR_FOLDER, filename)
 
 
@@ -211,7 +229,7 @@ def move_file(src_path, dest_folder, new_filename):
     try:
         shutil.move(src_path, dest_path)
     except Exception as e:
-        print(f"Error moving file: {e}")
+        logging.log(logging.ERROR, f"{e}", "error")
 
 
 if __name__ == "__main__":

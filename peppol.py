@@ -1,8 +1,7 @@
 import xmlrpc.client
 import base64
-import os
 
-from parse_pdf import parse_invoice
+from parse_pdf import parse_invoice, generate_filename
 
 
 class OdooClient:
@@ -16,7 +15,7 @@ class OdooClient:
         self.uid = None
 
     def connect(self):
-        """Authenticates with Odoo."""
+        """Authenticate with Odoo."""
         try:
             self.uid = self.common.authenticate(self.db, self.username, self.api_key, {})
             if not self.uid:
@@ -25,6 +24,9 @@ class OdooClient:
         except Exception as e:
             raise ConnectionError(f"Could not connect to Odoo: {e}")
 
+    """
+    Helper function to get the ids of the internal fields.
+    """
     def get_sales_account_id(self, code='700000'):
         res = self.models.execute_kw(self.db, self.uid, self.api_key,
                                      'account.account', 'search', [[('code', '=', code)]], {'limit': 1})
@@ -61,12 +63,16 @@ class OdooClient:
         return res[0]
 
     def get_or_create_partner(self, customer_info):
+        """
+        Get the partner id if partner exists else create it.
+        :param customer_info: info extracted from the pdf invoice
+        :return: partner id
+        """
         vat = customer_info.get("vat")
 
         # Search by VAT
         partner_id = self.models.execute_kw(self.db, self.uid, self.api_key,
                                                           'res.partner', 'search', [[('vat', '=', vat)]], {'limit': 1})
-
         if partner_id:
             return partner_id[0]
 
@@ -90,6 +96,11 @@ class OdooClient:
         return new_id
 
     def create_invoice_lines(self, totals):
+        """
+        Create invoice lines based on totals.
+        :param totals: the separate totals amount of the invoice
+        :return: invoice lines
+        """
         account_id = self.get_sales_account_id()  # Default 700000
 
         lines = []
@@ -123,7 +134,7 @@ class OdooClient:
     def create_post_invoice(self, file_path):
         """
         Workflow: Parse -> Partner -> Lines -> Invoice -> Post
-        Returns: (Success: bool, Message: str)
+        Returns: invoice id, new filename, message
         """
         try:
             # 1. Parse
@@ -149,10 +160,10 @@ class OdooClient:
                                                 'account.move', 'create', [invoice_vals])
 
             # 4. Attach PDF (Clean filename)
-            filename = os.path.basename(file_path)
             with open(file_path, "rb") as f:
                 pdf_content = base64.b64encode(f.read()).decode('utf-8')
 
+            filename = generate_filename(meta, buyer)
             self.models.execute_kw(self.db, self.uid, self.api_key,
                 'ir.attachment', 'create',
             [{
@@ -168,13 +179,17 @@ class OdooClient:
             self.models.execute_kw(self.db, self.uid, self.api_key,
                                    'account.move', 'action_post', [[invoice_id]])
 
-            return invoice_id, f"Invoice {invoice_id} created & posted."
+            return invoice_id, filename, f"Invoice {invoice_id} created & posted."
 
         except Exception as e:
-            # Return the error message so the UI can log it
-            return None, str(e)
+            return None, None, str(e)
 
     def send_peppol_verify(self, invoice_id):
+        """
+        Sends the invoice via peppol
+        :param invoice_id: the id of the invoice
+        :return: success/failure sending invoice, message
+        """
 
         # 1. Fetch invoice and partner details
         invoice = self.models.execute_kw(
@@ -225,7 +240,7 @@ class OdooClient:
             # 5. Prepare wizard values
             wizard_vals = {
                 'move_id': invoice_id,
-                'sending_methods': ['peppol'],  # Odoo 19 uses selection lists/tags here
+                'sending_methods': ['peppol'],
             }
 
             # Create the wizard record
@@ -243,7 +258,7 @@ class OdooClient:
                 {'context': context}
             )
 
-            return True, "Peppol batch send initiated."
+            return True, "Invoice sent via Peppol."
 
 
         except Exception as e:

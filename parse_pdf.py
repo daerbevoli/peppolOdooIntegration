@@ -146,20 +146,22 @@ def parse_invoice(pdf_path: str) -> Dict:
             "totals": extract_totals(full_text)
         }
 
-def generate_filename(metadata):
+def generate_filename(metadata, buyer):
     """
     Creates a safe filename: Company_YYYYMMDD_InvNum.pdf
     """
     # Clean company name
-    safe_company = "".join([c for c in metadata['company'] if c.isalnum() or c in (' ', '')]).strip().replace(" ", "")
+    safe_company = "".join([c for c in buyer['name'] if c.isalnum() or c in (' ', '')]).strip().replace(" ", "")
 
     # Clean date (Remove separators like / - .)
-    safe_date = re.sub(r"[-./]", "", metadata['date'])
+    safe_date = re.sub(r"[-./]", "", metadata['invoice_date'])
 
-    return f"{safe_company}_{safe_date}_{metadata['invoice_num']}.pdf"
+    return f"{safe_company}_{safe_date}_{metadata['invoice_number']}.pdf"
 
 
 if __name__ == "__main__":
-    PDF_PATH = "Factuur/20260107135323Faktuur.pdf"
+    PDF_PATH = "Factuur_processed/20260113133329Faktuur_1.pdf"
     data = parse_invoice(PDF_PATH)
-    print(data)
+
+    print(generate_filename(data["metadata"], data["buyer"]))
+
