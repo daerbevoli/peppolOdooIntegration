@@ -135,16 +135,33 @@ def extract_totals(text: str) -> Dict[str, Any]:
     return totals
 
 def parse_invoice(pdf_path: str) -> Dict:
-    with pdfplumber.open(pdf_path) as pdf:
-        page = pdf.pages[0]
-        full_text = page.extract_text()
+    items_all = []
+    full_text_all = ""
 
-        return {
-            "metadata": extract_invoice_metadata(full_text),
-            "buyer": extract_buyer_info(page),
-            "items": extract_items(page),
-            "totals": extract_totals(full_text)
-        }
+    with pdfplumber.open(pdf_path) as pdf:
+        for i, page in enumerate(pdf.pages):
+            text = page.extract_text()
+            if not text:
+                continue
+            full_text_all += text + "\n"
+
+            # Extract items from every page
+            items_all.extend(extract_items(page))
+
+        # Metadata and buyer info from first page only
+        metadata = extract_invoice_metadata(pdf.pages[0].extract_text())
+        buyer = extract_buyer_info(pdf.pages[0])
+
+        # Totals from all text
+        totals = extract_totals(full_text_all)
+
+    return {
+        "metadata": metadata,
+        "buyer": buyer,
+        "items": items_all,
+        "totals": totals
+    }
+
 
 def generate_filename(metadata, buyer):
     """
@@ -160,8 +177,10 @@ def generate_filename(metadata, buyer):
 
 
 if __name__ == "__main__":
-    PDF_PATH = "Factuur_processed/20260113133329Faktuur_1.pdf"
+    PDF_PATH = "Factuur/20260114104622Faktuur.pdf"
     data = parse_invoice(PDF_PATH)
+
+    print(data)
 
     print(generate_filename(data["metadata"], data["buyer"]))
 

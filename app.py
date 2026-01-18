@@ -4,11 +4,16 @@ import time
 import shutil
 import queue
 import threading
+import logging
 import tkinter as tk
 from tkinter import scrolledtext
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-import logging
+from dotenv import load_dotenv
+
+from peppol import OdooClient
+
+
 
 logging.basicConfig(
     filename="peppol.log",
@@ -16,8 +21,17 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s"
 )
 
+def load_env():
+    if getattr(sys, 'frozen', False):
+        base_path = os.path.dirname(sys.executable)
+    else:
+        base_path = os.path.dirname(os.path.abspath(__file__))
 
-from peppol import OdooClient
+    load_dotenv(os.path.join(base_path, ".env"))
+
+load_env()
+
+
 
 def get_base_path():
     if getattr(sys, 'frozen', False):
@@ -62,10 +76,10 @@ class App:
         self.observer = None
         self.is_running = False
 
-        self.URL = "https://skbc.odoo.com"
-        self.DB = "skbc"
-        self.USERNAME = "skbc.bv@gmail.com"
-        self.API_KEY = "85d7f2585c7a7b27cb6f135cc3909872f570124e"
+        self.URL = os.getenv("ODOO_URL")
+        self.DB = os.getenv("ODOO_DB")
+        self.USERNAME = os.getenv("ODOO_USERNAME")
+        self.API_KEY = os.getenv("ODOO_API_KEY")
 
         # Connect to Odoo
         self.odoo = OdooClient(self.URL, self.DB, self.USERNAME, self.API_KEY)
@@ -199,15 +213,15 @@ class App:
             if success:
                 move_file(file_path, SENT_FOLDER, new_filename)
                 self.log(f"{peppol_message} {new_filename}", "success")
-                logging.log(logging.INFO, f"{peppol_message} {new_filename}", "success")
+                logging.log(logging.INFO, f"{peppol_message}: {new_filename}")
             else:
                 move_file(file_path, POSTED_FOLDER, new_filename)
                 self.log(f"{peppol_message} {new_filename}", "error")
-                logging.log(logging.ERROR, f"{peppol_message} {new_filename}", "error")
+                logging.log(logging.ERROR, f"{peppol_message}: {new_filename}")
 
         except Exception as e:
             self.log(f"Error processing {filename}: {e}", "error")
-            logging.log(logging.ERROR, f"{filename}", "error")
+            logging.log(logging.ERROR, f" exception error {filename}",)
             move_file(file_path, ERROR_FOLDER, filename)
 
 

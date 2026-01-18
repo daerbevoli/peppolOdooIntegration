@@ -1,8 +1,10 @@
 import xmlrpc.client
 import base64
-
+import os
+from dotenv import load_dotenv
 from parse_pdf import parse_invoice, generate_filename
 
+load_dotenv()
 
 class OdooClient:
     def __init__(self, url, db, username, api_key):
@@ -179,7 +181,7 @@ class OdooClient:
             self.models.execute_kw(self.db, self.uid, self.api_key,
                                    'account.move', 'action_post', [[invoice_id]])
 
-            return invoice_id, filename, f"Invoice {invoice_id} created & posted."
+            return invoice_id, filename, f"Invoice {filename} created & posted."
 
         except Exception as e:
             return None, None, str(e)
@@ -266,10 +268,10 @@ class OdooClient:
 
 if __name__ == "__main__":
     #
-    URL = "https://skbc.odoo.com"
-    DB = "skbc"
-    USERNAME = "skbc.bv@gmail.com"
-    API_KEY = "85d7f2585c7a7b27cb6f135cc3909872f570124e"
+    URL = os.getenv("ODOO_URL")
+    DB = os.getenv("ODOO_DB")
+    USERNAME = os.getenv("ODOO_USERNAME")
+    API_KEY = os.getenv("ODOO_API_KEY")
 
     client = OdooClient(URL, DB, USERNAME, API_KEY)
 
@@ -282,7 +284,7 @@ if __name__ == "__main__":
     #     )
 
     print(client.connect())
-
-    send = client.send_peppol_verify(26495)
+    # post = client.create_post_invoice("Factuur/20260114104622Faktuur.pdf")
+    send = client.send_peppol_verify(26502)
     print(send)
 
