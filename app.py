@@ -7,6 +7,7 @@ import threading
 import logging
 import tkinter as tk
 from tkinter import scrolledtext
+from tkinter import messagebox
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from dotenv import load_dotenv
@@ -15,6 +16,12 @@ from peppol import OdooClient
 
 def get_base_path():
     return r"C:\Users\samee\OneDrive\Desktop\Facturen"
+
+
+# testing
+# def get_base_path():
+#     return r"./"
+# WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
 
 BASE_DIR = get_base_path()
 
@@ -31,21 +38,26 @@ SENT_FOLDER = os.path.join(BASE_DIR, "Factuur_sent")
 POSTED_FOLDER = os.path.join(BASE_DIR, "Factuur_not_sent")
 ERROR_FOLDER = os.path.join(BASE_DIR, "Factuur_error")
 
-# Queue for files detected by Watchdog
-file_queue = queue.Queue()
-
+# Event handler for watchdog
 class PDFHandler(FileSystemEventHandler):
+    def __init__(self, file_queue):
+        self.file_queue = file_queue
+
     def on_created(self, event):
         if event.is_directory or not event.src_path.lower().endswith('.pdf'):
             return
-        file_queue.put(event.src_path)
-
+        self.file_queue.put(event.src_path)
 
 def wait_for_file_ready(file_path, timeout=5):
+    """
+    Checks whether file is ready for processing (no transfer or open)
+    :param file_path: file path
+    :param timeout: time to wait
+    :return:
+    """
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
-            # Try to rename the file to itself; this usually fails if file is open/locked
             os.rename(file_path, file_path)
             return True
         except OSError:
@@ -59,8 +71,12 @@ class App:
         self.root.title("Peppol Odoo Integration")
         self.root.geometry("700x500")
 
+        # Queue for files detected by Watchdog
+        self.file_queue = queue.Queue()
+
         self.observer = None
         self.is_running = False
+        self.queue_busy = False
 
         self.URL = os.getenv("ODOO_URL")
         self.DB = os.getenv("ODOO_DB")
@@ -73,11 +89,11 @@ class App:
         try:
             self.odoo.connect()
             self.log("Connected to Odoo successfully.", "success")
-            logging.log(logging.INFO, "Connected to Odoo successfully.")
+            logging.log(logging.INFO, f"Connected to Odoo successfully at {self.URL}")
             self.log(f"URL = {self.URL}")
         except Exception as e:
             self.log(f"Odoo Connection Failed: {e}", "error")
-            logging.log(logging.ERROR, "Odoo Connection Failed")
+            logging.log(logging.ERROR, f"Odoo Connection Failed: {e}")
 
         # --- GUI COMPONENTS ---
         header_frame = tk.Frame(root)
@@ -100,7 +116,7 @@ class App:
         self.log_area.tag_config("success", foreground="green")
 
         # Ensure ALL folders exist
-        for folder in [WATCH_FOLDER, SENT_FOLDER, POSTED_FOLDER, ERROR_FOLDER]:
+        for folder in [SENT_FOLDER, POSTED_FOLDER, ERROR_FOLDER]:
             os.makedirs(folder, exist_ok=True)
 
         self.log(f"System Ready. Watching: {os.path.abspath(WATCH_FOLDER)}")
@@ -119,17 +135,26 @@ class App:
     def start_monitoring(self):
         if self.is_running: return
 
-        self.scan_existing_files()
+        # Check if network path is reachable
+        if not os.path.exists(WATCH_FOLDER):
+            self.log(f"Network is down: please turn on kassa...", "error")
+            self.status_label.config(text="Status: RETRYING CONNECTION", fg="orange")
+            # Try again in 5 seconds
+            self.root.after(5000, self.start_monitoring)
+            return
 
-        self.observer = Observer()
-        self.observer.schedule(PDFHandler(), WATCH_FOLDER, recursive=False)
-        self.observer.start()
+        try:
+            self.scan_existing_files()
+            self.observer = Observer()
+            self.observer.schedule(PDFHandler(self.file_queue), WATCH_FOLDER, recursive=False)
+            self.observer.start()
 
-        self.is_running = True
-        self.status_label.config(text="Status: RUNNING", fg="green")
-        self.btn_toggle.config(text="STOP Monitoring", bg="#ffcccc")
-        self.log(">>> Monitoring STARTED")
-        logging.log(logging.INFO, "Monitoring started.")
+            self.is_running = True
+            self.status_label.config(text="Status: RUNNING", fg="green")
+            self.btn_toggle.config(text="STOP Monitoring", bg="#ffcccc")
+            self.log(">>> Monitoring STARTED")
+        except Exception as e:
+            self.log(f"Failed to start: {e}", "error")
 
     def stop_monitoring(self):
         if not self.is_running or not self.observer: return
@@ -163,14 +188,22 @@ class App:
         for filename in os.listdir(WATCH_FOLDER):
             if filename.lower().endswith(".pdf"):
                 full_path = os.path.join(WATCH_FOLDER, filename)
-                file_queue.put(full_path)
+                self.file_queue.put(full_path)
 
     def check_queue(self):
         """ Checks queue and spawns a worker thread for new files so GUI doesn't freeze """
+        # If we are supposed to be running but the network disappears
+        if self.is_running and not os.path.exists(WATCH_FOLDER):
+            self.log("Network connection lost! Stopping and retrying...", "error")
+            self.stop_monitoring()
+            self.start_monitoring()
+            return
+
         try:
-            file_path = file_queue.get_nowait()
-            # Spawn a thread to handle the heavy lifting
-            threading.Thread(target=self.process_invoice_worker, args=(file_path,), daemon=True).start()
+            if not self.queue_busy:
+                file_path = self.file_queue.get_nowait()
+                # Spawn a thread to handle the heavy lifting
+                threading.Thread(target=self.process_invoice_worker, args=(file_path,), daemon=True).start()
         except queue.Empty:
             pass
         finally:
@@ -178,6 +211,8 @@ class App:
 
     def process_invoice_worker(self, file_path):
         """ This runs in a background thread """
+        self.queue_busy = True
+
         filename = os.path.basename(file_path)
         self.log(f"Detected: {filename} - Waiting for file ready...")
         logging.log(logging.INFO, f"Detected: {filename} - Waiting for file ready.")
@@ -208,10 +243,13 @@ class App:
                 self.log(f"{peppol_message} {new_filename}", "error")
                 logging.log(logging.ERROR, f"{peppol_message}: {new_filename}")
 
+
         except Exception as e:
             self.log(f"Error processing {filename}: Manual intervention required", "error")
             logging.log(logging.ERROR, f" exception error {filename}: {str(e)}",)
             move_file(file_path, ERROR_FOLDER, filename)
+        finally:
+            self.queue_busy = False
 
 
 # --- UTILS ---
@@ -241,9 +279,15 @@ if __name__ == "__main__":
 
 
     def on_closing():
-        app.stop_monitoring()
-        root.destroy()
-        sys.exit(0)
+        if messagebox.askokcancel("Quit", "DO NOT CLOSE UNLESS ADMIN"):
+            try:
+                app.stop_monitoring()
+            except Exception as e:
+                logging.log(logging.ERROR, f"Error during shutdown: {e}")
+            root.destroy()
+            sys.exit(0)
+        else:
+            return
 
     root.protocol("WM_DELETE_WINDOW", on_closing)
     root.mainloop()
