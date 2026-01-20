@@ -74,7 +74,8 @@ class OdooClient:
 
         # Search by VAT
         partner_id = self.models.execute_kw(self.db, self.uid, self.api_key,
-                                                          'res.partner', 'search', [[('vat', '=', vat)]], {'limit': 1})
+            'res.partner', 'search', [[('vat', '=', vat)]], {'limit': 1})
+
         if partner_id:
             return partner_id[0]
 
@@ -87,6 +88,8 @@ class OdooClient:
             'street': customer_info.get("street"),
             'city': customer_info.get("city"),
             'zip': customer_info.get("zip"),
+            'phone': customer_info.get("phone") or False,
+
             'country_id': country_id,
             'vat': vat,
             'lang': 'nl_BE',
@@ -108,9 +111,9 @@ class OdooClient:
         lines = []
         # Mapping: (rate, label)
         tax_map = [
-            (0.0, 'Exempt/Zero rated'),
-            (6.0, 'Food and beverages'),
-            (21.0, 'Standard/Non food')
+            (0.0, 'Vrijgesteld'),
+            (6.0, 'Voeding en levensmiddelen'),
+            (21.0, 'Divers/non-food')
         ]
 
         for rate, label in tax_map:

@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="Python 3.12 (peppol) (2)" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.12 (assumption)" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.12 (DAI_Lab4_RNN)" project-jdk-type="Python SDK" />
 </project>

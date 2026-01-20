@@ -35,12 +35,12 @@ def extract_invoice_metadata(text: str) -> Dict:
 def extract_buyer_info(page) -> Dict[str, Any]:
     """Extracts buyer details by finding the postal code anchor."""
     width, height = page.width, page.height
-    # Focus on the top right quadrant where buyer info typically resides
+    # Focus on the top right quadrant where buyer info resides
     right_box = (width * 0.45, 0, width, height * 0.4)
     text = page.crop(right_box).extract_text()
 
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    info = {"name": None, "street": None, "zipcode": None, "city": None, "phone": None, "vat": None}
+    info = {"name": None, "street": None, "zip": None, "city": None, "phone": None, "vat": None}
 
     # 1. Regex patterns for specific identifiers
     vat_pattern = re.compile(r"BE\s?[\d.]{10,14}", re.IGNORECASE)
@@ -112,7 +112,7 @@ def extract_totals(text: str) -> Dict[str, Any]:
     if basis_match:
         totals["basis_amount"] = parse_eu_float(basis_match.group(1))
 
-    # Extract BTW 0% (Added for robustness)
+    # Extract BTW 0%
     btw0_match = re.search(r"Btw 0% op ([\d.,]+)\s*€\s+([\d.,]+)\s*€", text)
     if btw0_match:
         totals["btw_0_amount"] = parse_eu_float(btw0_match.group(1))
@@ -177,10 +177,9 @@ def generate_filename(metadata, buyer):
 
 
 if __name__ == "__main__":
-    PDF_PATH = "Factuur/20260114104622Faktuur.pdf"
+    PDF_PATH = "Factuur_processed/20260106160928Faktuur.pdf"
     data = parse_invoice(PDF_PATH)
 
     print(data)
 
-    print(generate_filename(data["metadata"], data["buyer"]))
 
