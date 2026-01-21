@@ -8,7 +8,7 @@ import logging
 import tkinter as tk
 from tkinter import scrolledtext
 from tkinter import messagebox
-from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver as Observer
 from watchdog.events import FileSystemEventHandler
 from dotenv import load_dotenv
 
