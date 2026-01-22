@@ -11,12 +11,10 @@ from tkinter import messagebox
 from watchdog.observers.polling import PollingObserver as Observer
 from watchdog.events import FileSystemEventHandler
 from dotenv import load_dotenv
-
 from peppol import OdooClient
 
 def get_base_path():
     return r"C:\Users\samee\OneDrive\Desktop\Facturen"
-
 
 # testing
 # def get_base_path():
@@ -38,6 +36,8 @@ SENT_FOLDER = os.path.join(BASE_DIR, "Factuur_sent")
 POSTED_FOLDER = os.path.join(BASE_DIR, "Factuur_not_sent")
 ERROR_FOLDER = os.path.join(BASE_DIR, "Factuur_error")
 
+QUEUE_CHECKER_TIME = 500 # ms
+
 # Event handler for watchdog
 class PDFHandler(FileSystemEventHandler):
     def __init__(self, file_queue):
@@ -48,12 +48,12 @@ class PDFHandler(FileSystemEventHandler):
             return
         self.file_queue.put(event.src_path)
 
-def wait_for_file_ready(file_path, timeout=5):
+def wait_for_file_ready(file_path, timeout=10):
     """
     Checks whether file is ready for processing (no transfer or open)
     :param file_path: file path
     :param timeout: time to wait
-    :return:
+    :return: whether file is ready or not (bool)
     """
     start_time = time.time()
     while time.time() - start_time < timeout:
@@ -78,21 +78,21 @@ class App:
         self.is_running = False
         self.queue_busy = False
 
+        # Odoo credentials
         self.URL = os.getenv("ODOO_URL")
         self.DB = os.getenv("ODOO_DB")
         self.USERNAME = os.getenv("ODOO_USERNAME")
         self.API_KEY = os.getenv("ODOO_API_KEY")
-
-        # Connect to Odoo
         self.odoo = OdooClient(self.URL, self.DB, self.USERNAME, self.API_KEY)
 
+        # Try connect to Odoo
         try:
             self.odoo.connect()
             self.log("Connected to Odoo successfully.", "success")
             logging.log(logging.INFO, f"Connected to Odoo successfully at {self.URL}")
             self.log(f"URL = {self.URL}")
         except Exception as e:
-            self.log(f"Odoo Connection Failed: {e}", "error")
+            self.log(f"Odoo Connection Failed", "error")
             logging.log(logging.ERROR, f"Odoo Connection Failed: {e}")
 
         # --- GUI COMPONENTS ---
@@ -121,8 +121,11 @@ class App:
 
         self.log(f"System Ready. Watching: {os.path.abspath(WATCH_FOLDER)}")
 
+        # periodic scan of folder if watchdog fails-
+        self.last_scan = time.time()
+
         # Start the queue checker loop
-        self.root.after(250, self.check_queue)
+        self.root.after(QUEUE_CHECKER_TIME, self.check_queue)
 
         self.start_monitoring()
 
@@ -139,13 +142,15 @@ class App:
         if not os.path.exists(WATCH_FOLDER):
             self.log(f"Network is down: please turn on kassa...", "error")
             self.status_label.config(text="Status: RETRYING CONNECTION", fg="orange")
-            # Try again in 5 seconds
-            self.root.after(5000, self.start_monitoring)
+            logging.log(logging.ERROR, f"Network is down: {WATCH_FOLDER}")
+
+            # Try again in 10 seconds
+            self.root.after(10000, self.start_monitoring)
             return
 
         try:
             self.scan_existing_files()
-            self.observer = Observer()
+            self.observer = Observer() # polling observer
             self.observer.schedule(PDFHandler(self.file_queue), WATCH_FOLDER, recursive=False)
             self.observer.start()
 
@@ -155,6 +160,7 @@ class App:
             self.log(">>> Monitoring STARTED")
         except Exception as e:
             self.log(f"Failed to start: {e}", "error")
+            logging.log(logging.ERROR, f"Failed to start monitoring: {e}")
 
     def stop_monitoring(self):
         if not self.is_running or not self.observer: return
@@ -185,29 +191,47 @@ class App:
 
     def scan_existing_files(self):
         self.log("Scanning for existing PDF files...")
+        logging.log(logging.INFO, "Scanning for existing PDF files...")
+        # 1. Take a snapshot of what is ALREADY waiting in the queue
+        current_queue = list(self.file_queue.queue)
+
         for filename in os.listdir(WATCH_FOLDER):
             if filename.lower().endswith(".pdf"):
                 full_path = os.path.join(WATCH_FOLDER, filename)
-                self.file_queue.put(full_path)
+
+                # 2. Only add the file if it isn't already in the list
+                if full_path not in current_queue:
+                    self.file_queue.put(full_path)
 
     def check_queue(self):
-        """ Checks queue and spawns a worker thread for new files so GUI doesn't freeze """
-        # If we are supposed to be running but the network disappears
+        """ Checks queue and periodically forces a manual scan as a safety net """
+        current_time = time.time()
+
+        # Manual scan every 15 minutes in case Watchdog failed
+        if current_time - self.last_scan > (60 * 15):
+            if self.is_running and os.path.exists(WATCH_FOLDER):
+                self.log(">>> Running periodic scan...", "gray")
+                logging.log(logging.INFO, "Running periodic scan of unwatched files...")
+                self.scan_existing_files()
+            self.last_scan = current_time
+
+        # Connection Monitor
         if self.is_running and not os.path.exists(WATCH_FOLDER):
-            self.log("Network connection lost! Stopping and retrying...", "error")
-            self.stop_monitoring()
-            self.start_monitoring()
+            self.log("Network connection lost! Retrying in 10s...", "error")
+            # Don't call stop_monitoring here to avoid joining/hanging threads
+            self.is_running = False
+            self.root.after(10000, self.start_monitoring)
             return
 
+        # Process Queue
         try:
             if not self.queue_busy:
                 file_path = self.file_queue.get_nowait()
-                # Spawn a thread to handle the heavy lifting
                 threading.Thread(target=self.process_invoice_worker, args=(file_path,), daemon=True).start()
         except queue.Empty:
             pass
         finally:
-            self.root.after(250, self.check_queue)
+            self.root.after(QUEUE_CHECKER_TIME, self.check_queue)
 
     def process_invoice_worker(self, file_path):
         """ This runs in a background thread """

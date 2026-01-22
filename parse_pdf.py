@@ -176,10 +176,10 @@ def generate_filename(metadata, buyer):
     return f"{safe_company}_{safe_date}_{metadata['invoice_number']}.pdf"
 
 
-if __name__ == "__main__":
-    PDF_PATH = "Factuur_processed/20260106160928Faktuur.pdf"
-    data = parse_invoice(PDF_PATH)
-
-    print(data)
+# if __name__ == "__main__":
+#     PDF_PATH = "Factuur_processed/20260106160928Faktuur.pdf"
+#     data = parse_invoice(PDF_PATH)
+#
+#     print(data)
 
 
