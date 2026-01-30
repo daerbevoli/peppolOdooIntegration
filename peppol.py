@@ -49,18 +49,32 @@ class OdooClient:
 
     #
 
-    def get_json(self):
-        pass
+    def get_json(self, model: str, method: str, domain: list):
+        res = requests.post(
+            f"{self.url}/{model}/{method}",
+            headers=self.headers,
+            json={
+                "domain": domain,
+                "limit": 1
+            },
+        )
+
+        if res.status_code != 200:
+            raise PermissionError(f"Authentication failed (status {res.status_code}): {res.text}")
+
+        return res.json()
+
 
     """
     Helper function to get the ids of the internal fields.
     """
     def get_sales_account_id(self, code='700000'):
-        res = self.models.execute_kw(self.db, self.uid, self.api_key,
-                                     'account.account', 'search', [[('code', '=', code)]], {'limit': 1})
+        domain = [["code", '=', code]]
+        res = self.get_json(model='account.account', method='search', domain=domain)
         if not res:
             raise ValueError(f"Sales account {code} not found in Odoo.")
         return res[0]
+
 
     def get_sale_tax_id(self, rate):
         res = self.models.execute_kw(self.db, self.uid, self.api_key,
@@ -70,6 +84,7 @@ class OdooClient:
                 ('amount', '=', rate),
                 ('active', '=', True)
             ]],
+
             {'limit': 1}
         )
         if not res:
@@ -329,3 +344,5 @@ if __name__ == "__main__":
         )
 
     print(client.connect())
+
+    print(client.get_sales_account_id(code='700000'))
