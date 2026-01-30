@@ -4,7 +4,6 @@ import requests
 import base64
 import os
 from parse_pdf import parse_invoice, generate_filename
-from test import get_json
 
 
 class OdooClient:
@@ -225,7 +224,6 @@ class OdooClient:
                 'res_id': invoice_id,
                 'mimetype': 'application/pdf',
             }]
-
             self.get_json(model="ir.attachment", method='create', domain=domain)
 
             # 5. Post Invoice
