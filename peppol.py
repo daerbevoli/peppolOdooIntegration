@@ -4,6 +4,8 @@ import requests
 import base64
 import os
 from parse_pdf import parse_invoice, generate_filename
+from test import get_json
+
 
 class OdooClient:
     def __init__(self, url, db, username, api_key):
@@ -77,30 +79,23 @@ class OdooClient:
 
 
     def get_sale_tax_id(self, rate):
-        res = self.models.execute_kw(self.db, self.uid, self.api_key,
-            'account.tax', 'search',
-            [[
-                ('type_tax_use', '=', 'sale'),
-                ('amount', '=', rate),
-                ('active', '=', True)
-            ]],
 
-            {'limit': 1}
-        )
+        domain = [['type_tax_use', '=', 'sale'], ['amount', '=', rate], ['active', '=', True]]
+        res = self.get_json(model='account.tax', method='search', domain=domain)
         if not res:
             raise ValueError(f"Sales tax for rate {rate}% not found.")
         return res[0]
 
     def get_journal_id(self, code='VF'):
-        res = self.models.execute_kw(self.db, self.uid, self.api_key,
-                                     'account.journal', 'search', [[('code', '=', code)]], {'limit': 1})
+        domain = [['code', '=', code]]
+        res = self.get_json(model='account.journal', method='search', domain=domain)
         if not res:
             raise ValueError(f"Journal '{code}' not found.")
         return res[0]
 
     def get_country_id(self, code='BE'):
-        res = self.models.execute_kw(self.db, self.uid, self.api_key,
-                                     'res.country', 'search', [[('code', '=', code)]], {'limit': 1})
+        domain = [['code', '=', code]]
+        res = self.get_json(model='res.country', method='search', domain=domain)
         if not res:
             raise ValueError(f"Country code '{code}' not found.")
         return res[0]
@@ -114,17 +109,16 @@ class OdooClient:
         vat = customer_info.get("vat")
 
         # Search by VAT
-        partner_id = self.models.execute_kw(self.db, self.uid, self.api_key,
-            'res.partner', 'search', [[('vat', '=', vat)]], {'limit': 1})
+        domain = [['vat', '=', vat]]
+        partner_id = self.get_json(model='res.partner', method='search', domain=domain)
 
         if partner_id:
             return partner_id[0]
 
         # Create if not found
         country_id = self.get_country_id('BE')
-        new_id = self.models.execute_kw(self.db, self.uid, self.api_key,
-            'res.partner', 'create',
-        [{
+
+        domain = [{
             'name': customer_info["name"],
             'street': customer_info.get("street"),
             'city': customer_info.get("city"),
@@ -138,8 +132,10 @@ class OdooClient:
 
             'invoice_sending_method': 'peppol',
             'invoice_edi_format': 'ubl_bis3',
-        }])
-        return new_id
+        }]
+        new_partner_id = self.get_json(model='res.partner', method='create', domain=domain)
+
+        return new_partner_id
 
     def create_invoice_lines(self, totals):
         """
@@ -207,39 +203,33 @@ class OdooClient:
             if not invoice_number:
                 return None, None, f"Invoice number missing in PDF {filename}"
 
-            existing_invoice = self.models.execute_kw(
-                self.db, self.uid, self.api_key,
-                'account.move', 'search',
-                [[('move_type', '=', 'out_invoice'), ('ref', '=', invoice_number)]],
-                {'limit': 1}
-            )
+            domain = [['move_type', '=', 'out_invoice'], ['ref', '=', invoice_number]]
+            existing_invoice = self.get_json(model="account.move", method='search', domain=domain)
 
             # check for duplicate
             if existing_invoice:
                 invoice_id = existing_invoice[0]
                 return invoice_id, filename, f"Invoice {invoice_number} already exists."
 
-            invoice_id = self.models.execute_kw(self.db, self.uid, self.api_key,
-                                                'account.move', 'create', [invoice_vals])
+            invoice_id = self.get_json(model="account.move", method='create', domain=[invoice_vals])
 
             # 4. Attach PDF (Clean filename)
             with open(file_path, "rb") as f:
                 pdf_content = base64.b64encode(f.read()).decode('utf-8')
 
-            self.models.execute_kw(self.db, self.uid, self.api_key,
-                'ir.attachment', 'create',
-            [{
+            domain = [{
                 'name': filename,
                 'type': 'binary',
                 'datas': pdf_content,
                 'res_model': 'account.move',
                 'res_id': invoice_id,
                 'mimetype': 'application/pdf',
-            }])
+            }]
+
+            self.get_json(model="ir.attachment", method='create', domain=domain)
 
             # 5. Post Invoice
-            self.models.execute_kw(self.db, self.uid, self.api_key,
-                                   'account.move', 'action_post', [[invoice_id]])
+            self.get_json(model="account.move", method='action_post', domain=[[invoice_id]])
 
             return invoice_id, filename, f"Invoice {invoice_number} created & posted."
 
@@ -345,4 +335,4 @@ if __name__ == "__main__":
 
     print(client.connect())
 
-    print(client.get_sales_account_id(code='700000'))
+    print(client.get_sale_tax_id(rate=6))
