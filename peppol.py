@@ -1,30 +1,56 @@
-import xmlrpc.client
+import logging
+
+import requests
 import base64
 import os
-from dotenv import load_dotenv
 from parse_pdf import parse_invoice, generate_filename
-
-load_dotenv()
 
 class OdooClient:
     def __init__(self, url, db, username, api_key):
-        self.url = url
+        self.url = f"{url}/json/2"
         self.db = db
         self.username = username
         self.api_key = api_key
-        self.common = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common")
-        self.models = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/object")
-        self.uid = None
+
+        self.headers = {}
+
+
 
     def connect(self):
-        """Authenticate with Odoo."""
+        """
+        Validate JSON-2 API access.
+        JSON-2 does NOT authenticate or return a uid.
+        We verify access by calling a lightweight endpoint.
+        """
+        headers = {"Authorization": f"bearer {self.api_key}",
+                    "X-Odoo-Database": self.db}
         try:
-            self.uid = self.common.authenticate(self.db, self.username, self.api_key, {})
-            if not self.uid:
+            res = requests.post(
+                f"{self.url}/res.users/context_get",
+                headers=headers,
+                json={},  # no ids, @api.model method
+                timeout=10,
+            )
+
+            if res.status_code != 200:
+                raise PermissionError(
+                    f"Authentication failed (status {res.status_code}): {res.text}"
+                )
+
+            # JSON-2 has no uid, but we can store user context
+            user_context = res.json()
+            if not user_context['uid']:
                 raise PermissionError("Authentication failed: Check username/API key.")
+            self.headers = headers
             return True
-        except Exception as e:
-            raise ConnectionError(f"Could not connect to Odoo: {e}")
+
+        except requests.RequestException as e:
+            raise ConnectionError(f"Could not connect to Odoo JSON-2 API: {e}")
+
+    #
+
+    def get_json(self):
+        pass
 
     """
     Helper function to get the ids of the internal fields.
@@ -285,7 +311,7 @@ class OdooClient:
         except Exception as e:
             return False, f"Failed to initiate Peppol send: {str(e)}"
 
-# if __name__ == "__main__":
+if __name__ == "__main__":
     # #
     # URL = os.getenv("ODOO_URL")
     # DB = os.getenv("ODOO_DB")
@@ -295,15 +321,11 @@ class OdooClient:
     # client = OdooClient(URL, DB, USERNAME, API_KEY)
     #
     #
-    # # client = OdooClient(
-    # #         url="https://skbctesting.odoo.com",
-    # #         db="skbctesting",
-    # #         username="skbc.bv@gmail.com",
-    # #         api_key="7e231b61aa3afc6c8c8fae66fcf60c35e22f4e2d"
-    # #     )
-    #
-    # print(client.connect())
-    # # post = client.create_post_invoice("Factuur/20260114104622Faktuur.pdf")
-    # send = client.send_peppol_verify(26502)
-    # print(send)
+    client = OdooClient(
+            url="https://skbctesting.odoo.com",
+            db="skbctesting",
+            username="skbc.bv@gmail.com",
+            api_key="7e231b61aa3afc6c8c8fae66fcf60c35e22f4e2d"
+        )
 
+    print(client.connect())
