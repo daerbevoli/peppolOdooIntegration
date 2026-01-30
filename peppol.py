@@ -50,14 +50,11 @@ class OdooClient:
 
     #
 
-    def get_json(self, model: str, method: str, domain: list):
+    def get_json(self, model: str, method: str, json: dict):
         res = requests.post(
             f"{self.url}/{model}/{method}",
             headers=self.headers,
-            json={
-                "domain": domain,
-                "limit": 1
-            },
+            json=json,
         )
 
         if res.status_code != 200:
@@ -70,8 +67,8 @@ class OdooClient:
     Helper function to get the ids of the internal fields.
     """
     def get_sales_account_id(self, code='700000'):
-        domain = [["code", '=', code]]
-        res = self.get_json(model='account.account', method='search', domain=domain)
+        json = {"domain": [["code", '=', code]], "limit": 1}
+        res = self.get_json(model='account.account', method='search', json=json)
         if not res:
             raise ValueError(f"Sales account {code} not found in Odoo.")
         return res[0]
@@ -79,22 +76,23 @@ class OdooClient:
 
     def get_sale_tax_id(self, rate):
 
-        domain = [['type_tax_use', '=', 'sale'], ['amount', '=', rate], ['active', '=', True]]
-        res = self.get_json(model='account.tax', method='search', domain=domain)
+        json = {"domain": [['type_tax_use', '=', 'sale'], ['amount', '=', rate], ['active', '=', True]],
+                "limit": 1}
+        res = self.get_json(model='account.tax', method='search', json=json)
         if not res:
             raise ValueError(f"Sales tax for rate {rate}% not found.")
         return res[0]
 
     def get_journal_id(self, code='VF'):
-        domain = [['code', '=', code]]
-        res = self.get_json(model='account.journal', method='search', domain=domain)
+        json = {"domain": [["code", '=', code]], "limit": 1}
+        res = self.get_json(model='account.journal', method='search', json=json)
         if not res:
             raise ValueError(f"Journal '{code}' not found.")
         return res[0]
 
     def get_country_id(self, code='BE'):
-        domain = [['code', '=', code]]
-        res = self.get_json(model='res.country', method='search', domain=domain)
+        json = {"domain": [["code", '=', code]], "limit": 1}
+        res = self.get_json(model='res.country', method='search', json=json)
         if not res:
             raise ValueError(f"Country code '{code}' not found.")
         return res[0]
@@ -108,8 +106,8 @@ class OdooClient:
         vat = customer_info.get("vat")
 
         # Search by VAT
-        domain = [['vat', '=', vat]]
-        partner_id = self.get_json(model='res.partner', method='search', domain=domain)
+        json = {"domain": [['vat', '=', vat]]}
+        partner_id = self.get_json(model='res.partner', method='search', json=json)
 
         if partner_id:
             return partner_id[0]
@@ -117,7 +115,7 @@ class OdooClient:
         # Create if not found
         country_id = self.get_country_id('BE')
 
-        domain = [{
+        json = {"vals_list": [{
             'name': customer_info["name"],
             'street': customer_info.get("street"),
             'city': customer_info.get("city"),
@@ -131,8 +129,8 @@ class OdooClient:
 
             'invoice_sending_method': 'peppol',
             'invoice_edi_format': 'ubl_bis3',
-        }]
-        new_partner_id = self.get_json(model='res.partner', method='create', domain=domain)
+        }]}
+        new_partner_id = self.get_json(model='res.partner', method='create', json=json)
 
         return new_partner_id
 
@@ -140,7 +138,7 @@ class OdooClient:
         """
         Create invoice lines based on totals.
         :param totals: the separate totals amount of the invoice
-        :return: invoice lines
+        :return: lines
         """
         account_id = self.get_sales_account_id()  # Default 700000
 
@@ -202,32 +200,35 @@ class OdooClient:
             if not invoice_number:
                 return None, None, f"Invoice number missing in PDF {filename}"
 
-            domain = [['move_type', '=', 'out_invoice'], ['ref', '=', invoice_number]]
-            existing_invoice = self.get_json(model="account.move", method='search', domain=domain)
+            json = {"domain": [['move_type', '=', 'out_invoice'], ['ref', '=', invoice_number]],
+                      "limit": 1}
+            existing_invoice = self.get_json(model="account.move", method='search', json=json)
 
             # check for duplicate
             if existing_invoice:
                 invoice_id = existing_invoice[0]
                 return invoice_id, filename, f"Invoice {invoice_number} already exists."
 
-            invoice_id = self.get_json(model="account.move", method='create', domain=[invoice_vals])
+            json = {"vals_list": [invoice_vals]}
+            invoice_id = self.get_json(model="account.move", method='create', json=json)
 
             # 4. Attach PDF (Clean filename)
             with open(file_path, "rb") as f:
                 pdf_content = base64.b64encode(f.read()).decode('utf-8')
 
-            domain = [{
+            json = {"vals_list": [{
                 'name': filename,
                 'type': 'binary',
                 'datas': pdf_content,
                 'res_model': 'account.move',
                 'res_id': invoice_id,
                 'mimetype': 'application/pdf',
-            }]
-            self.get_json(model="ir.attachment", method='create', domain=domain)
+            }]}
+            self.get_json(model="ir.attachment", method='create', json=json)
 
             # 5. Post Invoice
-            self.get_json(model="account.move", method='action_post', domain=[[invoice_id]])
+            json = {"ids": [invoice_id], "context": {}}
+            self.get_json(model="account.move", method='action_post', json=json)
 
             return invoice_id, filename, f"Invoice {invoice_number} created & posted."
 
@@ -242,31 +243,24 @@ class OdooClient:
         """
 
         # 1. Fetch invoice and partner details
-        invoice = self.models.execute_kw(
-            self.db, self.uid, self.api_key,
-            'account.move', 'read', [invoice_id],
-            {'fields': ['state', 'peppol_move_state', 'partner_id']}
-        )[0]
+        invoice_json = {"ids": [invoice_id], 'fields': ['state', 'peppol_move_state', 'partner_id']}
+        invoice_data = self.get_json(model="account.move", method='read', json=invoice_json)
+        print('invoice_data', invoice_data)
 
-        partner_id = invoice['partner_id'][0]
-        move_state = invoice.get('peppol_move_state')
+        partner_id = invoice_data.get('partner_id')[0]
+        move_state = invoice_data.get('peppol_move_state')
 
         # 2. Verify Partner Peppol Status
-        partner_data = self.models.execute_kw(
-            self.db, self.uid, self.api_key,
-            'res.partner', 'read', [partner_id],
-            {'fields': ['peppol_verification_state']}
-        )[0]
+        partner_json = {"ids": [invoice_id], 'fields': ['peppol_verification_state']}
+        partner_data = self.get_json(model="res.partner", method='read', json=partner_json)
+        print('partner_data', partner_data)
 
-        partner_on_peppol = partner_data['peppol_verification_state']
+        partner_on_peppol = partner_data.get('peppol_verification_state')
 
         # Trigger verification if not done yet
         if partner_on_peppol not in ('valid', 'not_valid'):
-            self.models.execute_kw(
-                self.db, self.uid, self.api_key,
-                'res.partner', 'button_account_peppol_check_partner_endpoint',
-                [[partner_id]]
-            )
+            pop_json = {"ids": [partner_id]}
+            self.get_json(model="res.partner", method='button_account_peppol_check_partner_endpoint', json=pop_json)
             return False, "Peppol partner verification triggered. Please retry in a moment."
 
         if partner_on_peppol == 'not_valid':
@@ -280,10 +274,8 @@ class OdooClient:
             return False, "Peppol error detected. Manual intervention required."
 
         # 4. Initiate Peppol Send via Wizard
-        action = self.models.execute_kw(
-            self.db, self.uid, self.api_key,
-            'account.move', 'action_invoice_sent', [[invoice_id]]
-        )
+        inv_sent_json = {"ids": [invoice_id]}
+        action = self.get_json(model="account.move", method='action_invoice_sent', json=inv_sent_json)
         context = action.get('context', {})
 
         try:
