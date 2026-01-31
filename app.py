@@ -13,15 +13,16 @@ from watchdog.events import FileSystemEventHandler
 from dotenv import load_dotenv
 from peppol import OdooClient
 
-def get_base_path():
-    return r"C:\Users\samee\OneDrive\Desktop\Facturen"
+# def get_base_path():
+#     return r"C:\Users\samee\OneDrive\Desktop\Facturen"
 
 # testing
-# def get_base_path():
-#     return r"./"
-# WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
+def get_base_path():
+    return r"./"
 
 BASE_DIR = get_base_path()
+
+WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
 
 logging.basicConfig(
     filename= os.path.join(BASE_DIR, "peppol.log"),
@@ -31,7 +32,7 @@ logging.basicConfig(
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-WATCH_FOLDER = r"\\PC1\Factuur"
+# WATCH_FOLDER = r"\\PC1\Factuur"
 SENT_FOLDER = os.path.join(BASE_DIR, "Factuur_sent")
 POSTED_FOLDER = os.path.join(BASE_DIR, "Factuur_not_sent")
 ERROR_FOLDER = os.path.join(BASE_DIR, "Factuur_error")
@@ -81,9 +82,8 @@ class App:
         # Odoo credentials
         self.URL = os.getenv("ODOO_URL")
         self.DB = os.getenv("ODOO_DB")
-        self.USERNAME = os.getenv("ODOO_USERNAME")
         self.API_KEY = os.getenv("ODOO_API_KEY")
-        self.odoo = OdooClient(self.URL, self.DB, self.USERNAME, self.API_KEY)
+        self.odoo = OdooClient(self.URL, self.DB, self.API_KEY)
 
         # Try connect to Odoo
         try:
@@ -256,7 +256,7 @@ class App:
                 move_file(file_path, ERROR_FOLDER, filename)
                 return
             self.log(invoice_message)
-            success, peppol_message = self.odoo.send_peppol_verify(invoice_id)
+            success, peppol_message = self.odoo.send_peppol(invoice_id)
 
             if success:
                 move_file(file_path, SENT_FOLDER, new_filename)

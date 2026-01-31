@@ -208,7 +208,7 @@ class OdooClient:
 
         return lines
 
-    def create_and_post_invoice(self, meta, buyer, totals):
+    def create_post_invoice(self, meta, buyer, totals):
         partner_id = self.get_or_create_partner(buyer)
         journal_id = self.get_journal_id("VF")
 
@@ -282,11 +282,11 @@ class OdooClient:
             }
         )
 
-        self.button(
-            "account.move.send.wizard",
-            "action_send_and_print",
-            [wizard_id],
-        )
+        # self.button(
+        #     "account.move.send.wizard",
+        #     "action_send_and_print",
+        #     [wizard_id],
+        # )
 
         return "Invoice sent via Peppol"
 
