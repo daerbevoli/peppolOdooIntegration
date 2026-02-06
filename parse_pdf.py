@@ -1,6 +1,6 @@
 import pdfplumber
 import re
-from typing import List, Dict, Any
+from typing import Any
 
 def parse_eu_float(val: str) -> float:
     """Safely converts European formatted strings (1.234,56) to floats."""
@@ -15,7 +15,7 @@ def parse_eu_float(val: str) -> float:
     except ValueError:
         return 0.0
 
-def extract_invoice_metadata(text: str) -> Dict:
+def extract_invoice_metadata(text: str) -> dict:
     """Uses regex to find standard Belgian invoice headers."""
     # Matches 'Factuur 7216'
     inv_match = re.search(r"Faktuur\s+(\d+)", text)
@@ -32,7 +32,7 @@ def extract_invoice_metadata(text: str) -> Dict:
         "invoice_date": new_date_str if date_match else None,
     }
 
-def extract_buyer_info(page) -> Dict[str, Any]:
+def extract_buyer_info(page) -> dict[str, Any]:
     """Extracts buyer details by finding the postal code anchor."""
     width, height = page.width, page.height
     # Focus on the top right quadrant where buyer info resides
@@ -70,7 +70,7 @@ def extract_buyer_info(page) -> Dict[str, Any]:
 
     return info
 
-def extract_items(page) -> List[Dict]:
+def extract_items(page) -> list[dict]:
     """Extracts line items using a non-greedy regex to handle mid-line descriptions."""
     text = page.extract_text()
     lines = text.splitlines()
@@ -97,7 +97,7 @@ def extract_items(page) -> List[Dict]:
 
     return items
 
-def extract_totals(text: str) -> Dict[str, Any]:
+def extract_totals(text: str) -> dict[str, float]:
     """Extracts summary totals (Basis, BTW, Totaal) from the footer table."""
     totals = {
         "basis": 0.0,
@@ -134,7 +134,7 @@ def extract_totals(text: str) -> Dict[str, Any]:
 
     return totals
 
-def parse_invoice(pdf_path: str) -> Dict:
+def parse_invoice(pdf_path: str) -> dict:
     items_all = []
     full_text_all = ""
 
@@ -162,7 +162,7 @@ def parse_invoice(pdf_path: str) -> Dict:
         "totals": totals
     }
 
-def generate_filename(metadata, buyer):
+def generate_filename(metadata: dict, buyer: dict) -> str:
     """
     Creates a safe filename: Company_YYYYMMDD_InvNum.pdf
     """

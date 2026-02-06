@@ -13,16 +13,13 @@ from watchdog.events import FileSystemEventHandler
 from dotenv import load_dotenv
 from peppol import OdooClient
 
-# def get_base_path():
-#     return r"C:\Users\samee\OneDrive\Desktop\Facturen"
-
 # testing
-def get_base_path():
-    return r"./"
+# BASE_DIR = "./"
+# WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
 
-BASE_DIR = get_base_path()
 
-WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
+BASE_DIR = r"C:\Users\samee\OneDrive\Desktop\Facturen"
+WATCH_FOLDER = r"\\PC1\Factuur"
 
 logging.basicConfig(
     filename= os.path.join(BASE_DIR, "peppol.log"),
@@ -32,12 +29,12 @@ logging.basicConfig(
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-# WATCH_FOLDER = r"\\PC1\Factuur"
 SENT_FOLDER = os.path.join(BASE_DIR, "Factuur_sent")
 POSTED_FOLDER = os.path.join(BASE_DIR, "Factuur_not_sent")
 ERROR_FOLDER = os.path.join(BASE_DIR, "Factuur_error")
 
-QUEUE_CHECKER_TIME = 500 # ms
+# Check the queue every 5 seconds
+QUEUE_CHECKER_TIME = 5000 # ms
 
 # Event handler for watchdog
 class PDFHandler(FileSystemEventHandler):
@@ -85,7 +82,7 @@ class App:
         self.API_KEY = os.getenv("ODOO_API_KEY")
         self.odoo = OdooClient(self.URL, self.DB, self.API_KEY)
 
-        # Try connect to Odoo
+        # Try to connect to Odoo
         try:
             self.odoo.connect()
             self.log("Connected to Odoo successfully.", "success")

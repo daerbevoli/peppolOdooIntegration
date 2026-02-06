@@ -1,8 +1,8 @@
 import base64
 import os
 import requests
+from typing import Any
 from parse_pdf import parse_invoice, generate_filename
-
 
 class OdooClientError(Exception):
     pass
@@ -24,37 +24,7 @@ class OdooClient:
             "Content-Type": "application/json",
         }
 
-    def connect(self):
-        """
-        Validate JSON-2 API access.
-        JSON-2 does NOT authenticate or return a uid.
-        We verify access by calling a lightweight endpoint.
-        """
-        try:
-            res = requests.post(
-                f"{self.base_url}/res.users/context_get",
-                headers=self.headers,
-                json={},
-                timeout=self.timeout,
-            )
-
-            if res.status_code != 200:
-                raise PermissionError(
-                    f"Authentication failed (status {res.status_code}): {res.text}"
-                )
-
-            # JSON-2 has no uid, but we can store user context
-            user_context = res.json()
-            if not user_context['uid']:
-                raise PermissionError("Authentication failed: Check username/API key.")
-            return True
-
-        except requests.RequestException as e:
-            raise ConnectionError(f"Could not connect to Odoo JSON-2 API: {e}")
-
-    #
-
-    def _call(self, model: str, method: str, payload: dict):
+    def _call(self, model: str, method: str, payload: dict) -> Any:
         try:
             res = requests.post(
                 f"{self.base_url}/{model}/{method}",
@@ -77,10 +47,27 @@ class OdooClient:
 
         return data
 
-    # --------------------------------------------------
-    # Common ORM helpers
-    # --------------------------------------------------
-    def search(self, model, domain: list, limit=1):
+    def connect(self):
+        """
+        Validate JSON-2 API access.
+        JSON-2 does NOT authenticate or return a uid.
+        We verify access by calling a lightweight endpoint.
+        """
+        res = self._call(
+            model="res.users",
+            method="context_get",
+            payload={}
+        )
+
+        # JSON-2 has no uid, so we store user context
+        user_context = res.json()
+        if not user_context['uid']:
+            raise PermissionError("Authentication failed: Check username/API key.")
+        return True
+
+
+    # ORM helpers
+    def search(self, model, domain, limit = 1):
         payload = {"domain": domain}
         if limit:
             payload["limit"] = limit
@@ -103,10 +90,7 @@ class OdooClient:
         payload.update(kwargs)
         return self._call(model, method, payload)
 
-    # --------------------------------------------------
     # Master data helpers
-    # --------------------------------------------------
-
     def get_sales_account_id(self, code: str = "700000") -> int:
         ids = self.search(
             model="account.account",
@@ -185,7 +169,7 @@ class OdooClient:
             },
         )
 
-    def create_invoice_lines(self, totals):
+    def create_invoice_lines(self, totals: dict) -> list:
         """
         Create invoice lines based on totals.
         :param totals: the separate totals amount of the invoice
@@ -221,7 +205,7 @@ class OdooClient:
         return lines
 
 
-    def create_post_invoice(self, file_path):
+    def create_post_invoice(self, file_path: str) -> tuple[int, str, str]:
         """
         Creates and post invoice from filepath
         :param file_path: path of invoice file
@@ -287,7 +271,7 @@ class OdooClient:
 
         return invoice_id, filename, f"Invoice {invoice_number} created & posted."
 
-    def send_peppol(self, invoice_id):
+    def send_peppol(self, invoice_id: int) -> tuple[bool, str]:
         """
         Send a invoice via the Peppol network.
         :param invoice_id: id of the invoice to be sent
@@ -320,19 +304,20 @@ class OdooClient:
                 "button_account_peppol_check_partner_endpoint",
                 [partner_id],
             )
-            return "Partner verification triggered: Manual sending required"
+            return False, "Partner verification triggered: Manual sending required"
 
         # If partner not on peppol -> stop: manual intervention
         if partner_state == "not_valid":
-            raise OdooClientError("Partner not on Peppol")
+            return  False, "Partner is not on Peppol"
 
-
+        # If done or error -> return
         if move_state == "done":
-            return False, "Already sent"
+            return False, "Invoice is already sent"
 
         if move_state == "error":
-            return False, "Peppol failed"
+            return False, "Peppol send failure"
 
+        # 3. Activate sending wizard
         action = self.button(
             model="account.move",
             method="action_invoice_sent",
@@ -340,9 +325,7 @@ class OdooClient:
         )
         context = action.get("context")
 
-        print(action)
-        print(context)
-
+        # Create sending method
         wizard_id = self.create(
             model="account.move.send.wizard",
             vals={
@@ -352,12 +335,12 @@ class OdooClient:
             context=context,
         )
 
+        # 4. Actually send the invoice
         self.button(
             "account.move.send.wizard",
             "action_send_and_print",
             [wizard_id],
         )
-
         return True, "Invoice sent via Peppol"
 
 
