@@ -17,7 +17,7 @@ def parse_eu_float(val: str) -> float:
 
 def extract_invoice_metadata(text: str) -> Dict:
     """Uses regex to find standard Belgian invoice headers."""
-    # Matches 'Faktuur 7216'
+    # Matches 'Factuur 7216'
     inv_match = re.search(r"Faktuur\s+(\d+)", text)
     # Matches 'Datum 19-12-2025'
     date_match = re.search(r"Datum\s+(\d{2}-\d{2}-\d{4})", text)
@@ -77,7 +77,7 @@ def extract_items(page) -> List[Dict]:
     items = []
 
     # Pattern: Qty -> Description -> Total Bedrag -> Unit Prijs
-    # Example: "2 Duck Roasted Boneless 650g, 15,00 € 7,50 €"
+    # Ex: "2 Duck Roasted Boneless 650g, 15,00 € 7,50 €"
     item_pattern = re.compile(
         r"^\s*\"?(?P<qty>\d+)\"?\s+"  # Qty
         r"\"?(?P<desc>.+?)\"?\s+"  # Description (non-greedy)
@@ -100,37 +100,37 @@ def extract_items(page) -> List[Dict]:
 def extract_totals(text: str) -> Dict[str, Any]:
     """Extracts summary totals (Basis, BTW, Totaal) from the footer table."""
     totals = {
-        "basis_amount": 0.0,
-        "btw_0_amount": 0.0,
-        "btw_6_amount": 0.0,
-        "btw_21_amount": 0.0,
-        "total_amount": 0.0
+        "basis": 0.0,
+        "btw_0": 0.0,
+        "btw_6": 0.0,
+        "btw_21": 0.0,
+        "total": 0.0
     }
 
     # Extract Basis
     basis_match = re.search(r"Basis\s+([\d.,]+)\s*€", text)
     if basis_match:
-        totals["basis_amount"] = parse_eu_float(basis_match.group(1))
+        totals["basis"] = parse_eu_float(basis_match.group(1))
 
     # Extract BTW 0%
     btw0_match = re.search(r"Btw 0% op ([\d.,]+)\s*€\s+([\d.,]+)\s*€", text)
     if btw0_match:
-        totals["btw_0_amount"] = parse_eu_float(btw0_match.group(1))
+        totals["btw_0"] = parse_eu_float(btw0_match.group(1))
 
     # Extract BTW 6%
     btw6_match = re.search(r"Btw 6% op ([\d.,]+)\s*€\s+([\d.,]+)\s*€", text)
     if btw6_match:
-        totals["btw_6_amount"] = parse_eu_float(btw6_match.group(1))
+        totals["btw_6"] = parse_eu_float(btw6_match.group(1))
 
     # Extract BTW 21%
     btw21_match = re.search(r"Btw 21% op ([\d.,]+)\s*€\s+([\d.,]+)\s*€", text)
     if btw21_match:
-        totals["btw_21_amount"] = parse_eu_float(btw21_match.group(1))
+        totals["btw_21"] = parse_eu_float(btw21_match.group(1))
 
     # Extract Total
     total_match = re.search(r"Totaal\s+([\d.,]+)\s*€", text)
     if total_match:
-        totals["total_amount"] = parse_eu_float(total_match.group(1))
+        totals["total"] = parse_eu_float(total_match.group(1))
 
     return totals
 
@@ -162,7 +162,6 @@ def parse_invoice(pdf_path: str) -> Dict:
         "totals": totals
     }
 
-
 def generate_filename(metadata, buyer):
     """
     Creates a safe filename: Company_YYYYMMDD_InvNum.pdf
@@ -182,41 +181,6 @@ def generate_filename(metadata, buyer):
 #
 #     print(data)
 
-import smtplib
-from email.message import EmailMessage
-from pathlib import Path
 
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 465
-
-EMAIL = "you@gmail.com"
-APP_PASSWORD = "your_app_password"
-
-def send_invoice(
-    to_email: str,
-    subject: str,
-    body: str,
-    pdf_path: str
-):
-    msg = EmailMessage()
-    msg["From"] = EMAIL
-    msg["To"] = to_email
-    msg["Subject"] = subject
-    msg.set_content(body)
-
-    pdf_path = Path(pdf_path)
-    with open(pdf_path, "rb") as f:
-        msg.add_attachment(
-            f.read(),
-            maintype="application",
-            subtype="pdf",
-            filename=pdf_path.name
-        )
-
-    with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as smtp:
-        smtp.login(EMAIL, APP_PASSWORD)
-        smtp.send_message(msg)
-
-    print(f"Invoice sent → {to_email}")
 
 

@@ -202,7 +202,7 @@ class OdooClient:
         ]
 
         for rate, label in tax_map:
-            key = f"btw_{int(rate)}_amount"
+            key = f"btw_{int(rate)}"
             amount = float(totals.get(key, 0))
 
             if amount > 0:
