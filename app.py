@@ -14,12 +14,12 @@ from dotenv import load_dotenv
 from peppol import OdooClient
 
 # testing
-# BASE_DIR = "./"
-# WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
+BASE_DIR = "./"
+WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
 
 
-BASE_DIR = r"C:\Users\samee\OneDrive\Desktop\Facturen"
-WATCH_FOLDER = r"\\PC1\Factuur"
+# BASE_DIR = r"C:\Users\samee\OneDrive\Desktop\Facturen"
+# WATCH_FOLDER = r"\\PC1\Factuur"
 
 logging.basicConfig(
     filename= os.path.join(BASE_DIR, "peppol.log"),
