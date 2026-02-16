@@ -17,7 +17,6 @@ from peppol import OdooClient
 BASE_DIR = "./"
 WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
 
-
 # BASE_DIR = r"C:\Users\samee\OneDrive\Desktop\Facturen"
 # WATCH_FOLDER = r"\\PC1\Factuur"
 
@@ -80,10 +79,10 @@ class App:
         self.URL = os.getenv("ODOO_URL")
         self.DB = os.getenv("ODOO_DB")
         self.API_KEY = os.getenv("ODOO_API_KEY")
-        self.odoo = OdooClient(self.URL, self.DB, self.API_KEY)
+        self.odoo = None
 
-        # Try to connect to Odoo
         try:
+            self.odoo = OdooClient(self.URL, self.DB, self.API_KEY)
             self.odoo.connect()
             self.log("Connected to Odoo successfully.", "success")
             logging.log(logging.INFO, f"Connected to Odoo successfully at {self.URL}")
@@ -111,6 +110,7 @@ class App:
         # Configure log tags
         self.log_area.tag_config("error", foreground="red")
         self.log_area.tag_config("success", foreground="green")
+        self.log_area.tag_config("gray", foreground="gray")
 
         # Ensure ALL folders exist
         for folder in [SENT_FOLDER, POSTED_FOLDER, ERROR_FOLDER]:
@@ -135,6 +135,11 @@ class App:
     def start_monitoring(self):
         if self.is_running: return
 
+        if not self.odoo:
+            self.log("Odoo client unavailable. Check credentials in .env", "error")
+            self.status_label.config(text="Status: ODOO CONNECTION ERROR", fg="red")
+            return
+
         # Check if network path is reachable
         if not os.path.exists(WATCH_FOLDER):
             self.log(f"Network is down: please turn on kassa...", "error")
@@ -146,6 +151,8 @@ class App:
             return
 
         try:
+            # Clean up any stale observer before starting a new one.
+            self._stop_observer(non_blocking=True)
             self.scan_existing_files()
             self.observer = Observer() # polling observer
             self.observer.schedule(PDFHandler(self.file_queue), WATCH_FOLDER, recursive=False)
@@ -162,15 +169,25 @@ class App:
     def stop_monitoring(self):
         if not self.is_running or not self.observer: return
 
-        self.observer.stop()
-        self.observer.join()
-        self.observer = None
+        self._stop_observer(non_blocking=False)
 
         self.is_running = False
         self.status_label.config(text="Status: STOPPED", fg="red")
         self.btn_toggle.config(text="START Monitoring", bg="#90ee90")
         self.log(">>> Monitoring STOPPED")
         logging.log(logging.INFO, "Monitoring stopped.")
+
+    def _stop_observer(self, non_blocking: bool):
+        if not self.observer:
+            return
+        try:
+            self.observer.stop()
+            if not non_blocking:
+                self.observer.join()
+        except Exception as e:
+            logging.log(logging.ERROR, f"Observer stop error: {e}")
+        finally:
+            self.observer = None
 
     def log(self, message, tag=None):
         """
@@ -202,49 +219,50 @@ class App:
 
     def check_queue(self):
         """ Checks queue and periodically forces a manual scan as a safety net """
-        current_time = time.time()
-
-        # Manual scan every 15 minutes in case Watchdog failed
-        if current_time - self.last_scan > (60 * 15):
-            if self.is_running and os.path.exists(WATCH_FOLDER):
-                self.log(">>> Running periodic scan...", "gray")
-                logging.log(logging.INFO, "Running periodic scan of unwatched files...")
-                self.scan_existing_files()
-            self.last_scan = current_time
-
-        # Connection Monitor
-        if self.is_running and not os.path.exists(WATCH_FOLDER):
-            self.log("Network connection lost! Retrying in 10s...", "error")
-            # Don't call stop_monitoring here to avoid joining/hanging threads
-            self.is_running = False
-            self.root.after(10000, self.start_monitoring)
-            return
-
-        # Process Queue
         try:
-            if not self.queue_busy:
-                file_path = self.file_queue.get_nowait()
-                threading.Thread(target=self.process_invoice_worker, args=(file_path,), daemon=True).start()
-        except queue.Empty:
-            pass
+            current_time = time.time()
+
+            # Manual scan every 15 minutes in case Watchdog failed
+            if current_time - self.last_scan > (60 * 30):
+                if self.is_running and os.path.exists(WATCH_FOLDER):
+                    self.log(">>> Running periodic scan...", "gray")
+                    logging.log(logging.INFO, "Running periodic scan of unwatched files...")
+                    self.scan_existing_files()
+                self.last_scan = current_time
+
+            # Connection Monitor
+            if self.is_running and not os.path.exists(WATCH_FOLDER):
+                self.log("Network connection lost! Retrying in 10s...", "error")
+                self._stop_observer(non_blocking=True)
+                self.is_running = False
+                self.root.after(10000, self.start_monitoring)
+                return
+
+            # Process Queue
+            try:
+                if not self.queue_busy:
+                    file_path = self.file_queue.get_nowait()
+                    threading.Thread(target=self.process_invoice_worker, args=(file_path,), daemon=True).start()
+            except queue.Empty:
+                pass
         finally:
             self.root.after(QUEUE_CHECKER_TIME, self.check_queue)
 
     def process_invoice_worker(self, file_path):
         """ This runs in a background thread """
-        self.queue_busy = True
-
         filename = os.path.basename(file_path)
-        self.log(f"Detected: {filename} - Waiting for file ready...")
-        logging.log(logging.INFO, f"Detected: {filename} - Waiting for file ready.")
-
-        if not wait_for_file_ready(file_path):
-            self.log(f"Error: File locked or inaccessible {filename}", "error")
-            logging.log(logging.ERROR, "File locked or inaccessible")
-            move_file(file_path, ERROR_FOLDER, filename)  # Move aside so we don't retry forever
-            return
 
         try:
+            self.queue_busy = True
+            self.log(f"Detected: {filename} - Waiting for file ready...")
+            logging.log(logging.INFO, f"Detected: {filename} - Waiting for file ready.")
+
+            if not wait_for_file_ready(file_path):
+                self.log(f"Error: File locked or inaccessible {filename}", "error")
+                logging.log(logging.ERROR, "File locked or inaccessible")
+                move_file(file_path, ERROR_FOLDER, filename)  # Move aside so we don't retry forever
+                return
+
             self.log(f"Processing: {filename}...")
 
             invoice_id, new_filename, invoice_message = self.odoo.create_post_invoice(file_path)

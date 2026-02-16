@@ -37,7 +37,7 @@ def extract_buyer_info(page) -> dict[str, Any]:
     width, height = page.width, page.height
     # Focus on the top right quadrant where buyer info resides
     right_box = (width * 0.45, 0, width, height * 0.4)
-    text = page.crop(right_box).extract_text()
+    text = page.crop(right_box).extract_text() or ""
 
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     info = {"name": None, "street": None, "zip": None, "city": None, "phone": None, "vat": None}
@@ -139,6 +139,8 @@ def parse_invoice(pdf_path: str) -> dict:
     full_text_all = ""
 
     with pdfplumber.open(pdf_path) as pdf:
+        if not pdf.pages:
+            raise ValueError("PDF contains no pages.")
         for i, page in enumerate(pdf.pages):
             text = page.extract_text()
             if not text:
@@ -149,7 +151,7 @@ def parse_invoice(pdf_path: str) -> dict:
             items_all.extend(extract_items(page))
 
         # Metadata and buyer info from first page only
-        metadata = extract_invoice_metadata(pdf.pages[0].extract_text())
+        metadata = extract_invoice_metadata(pdf.pages[0].extract_text() or "")
         buyer = extract_buyer_info(pdf.pages[0])
 
         # Totals from all text
@@ -167,20 +169,24 @@ def generate_filename(metadata: dict, buyer: dict) -> str:
     Creates a safe filename: Company_YYYYMMDD_InvNum.pdf
     """
     # Clean company name
-    safe_company = "".join([c for c in buyer['name'] if c.isalnum() or c in (' ', '')]).strip().replace(" ", "")
+    buyer_name = buyer.get("name") or "UnknownCompany"
+    safe_company = "".join([c for c in buyer_name if c.isalnum() or c == " "]).strip().replace(" ", "")
+    if not safe_company:
+        safe_company = "UnknownCompany"
 
     # Clean date (Remove separators like / - .)
-    safe_date = re.sub(r"[-./]", "", metadata['invoice_date'])
+    safe_date = re.sub(r"[-./]", "", metadata.get("invoice_date") or "UnknownDate")
+    invoice_number = metadata.get("invoice_number") or "UnknownNumber"
 
-    return f"{safe_company}_{safe_date}_{metadata['invoice_number']}.pdf"
-
-
-# if __name__ == "__main__":
-#     PDF_PATH = "Factuur_processed/20260106160928Faktuur.pdf"
-#     data = parse_invoice(PDF_PATH)
-#
-#     print(data)
+    return f"{safe_company}_{safe_date}_{invoice_number}.pdf"
 
 
+if __name__ == "__main__":
+    PDF_PATH = "love.pdf"
+    data = parse_invoice(PDF_PATH)
+
+    print(data)
+    metadata, buyer = data["metadata"], data["buyer"]
+    print(generate_filename(metadata, buyer))
 
 

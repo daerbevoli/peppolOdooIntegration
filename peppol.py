@@ -13,7 +13,7 @@ class OdooClient:
     JSON-2
     """
     def __init__(self, url: str, db: str, api_key: str, timeout: int = 15):
-        self.base_url = f"{url.rstrip('/')}/json/2"
+        self.base_url = f"{url}/json/2"
         self.db = db
         self.api_key = api_key
         self.timeout = timeout
@@ -53,14 +53,12 @@ class OdooClient:
         JSON-2 does NOT authenticate or return a uid.
         We verify access by calling a lightweight endpoint.
         """
-        res = self._call(
+        user_context = self._call(
             model="res.users",
             method="context_get",
             payload={}
         )
 
-        # JSON-2 has no uid, so we store user context
-        user_context = res.json()
         if not user_context['uid']:
             raise PermissionError("Authentication failed: Check username/API key.")
         return True
@@ -345,7 +343,7 @@ class OdooClient:
 
 
 if __name__ == "__main__":
-    #
+
     URL = os.getenv("ODOO_URL")
     DB = os.getenv("ODOO_DB")
     API_KEY = os.getenv("ODOO_API_KEY")
@@ -357,16 +355,16 @@ if __name__ == "__main__":
     #         db="skbctesting",
     #         api_key="7e231b61aa3afc6c8c8fae66fcf60c35e22f4e2d"
     #     )
-
+    #
     # print(client.connect())
     #
-    # file_path = "Factuur_sent/AsmitaBv_20260123_7361.pdf"
+    # file_path = "love.pdf"
     #
     # # invoice_id, s, a = client.create_post_invoice(file_path)
     #
-    # print(client.create_post_invoice(file_path))
+    # # print(client.create_post_invoice(file_path))
     #
     # # print("invoice id", invoice_id)
     #
-    # print(client.send_peppol(19433))
-
+    # print(client.send_peppol(19434))
+    #
