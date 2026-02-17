@@ -14,11 +14,11 @@ from dotenv import load_dotenv
 from peppol import OdooClient
 
 # testing
-BASE_DIR = "./"
-WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
+# BASE_DIR = "./"
+# WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
 
-# BASE_DIR = r"C:\Users\samee\OneDrive\Desktop\Facturen"
-# WATCH_FOLDER = r"\\PC1\Factuur"
+BASE_DIR = r"C:\Users\samee\OneDrive\Desktop\Facturen"
+WATCH_FOLDER = r"\\PC1\Factuur"
 
 logging.basicConfig(
     filename= os.path.join(BASE_DIR, "peppol.log"),
@@ -33,7 +33,7 @@ POSTED_FOLDER = os.path.join(BASE_DIR, "Factuur_not_sent")
 ERROR_FOLDER = os.path.join(BASE_DIR, "Factuur_error")
 
 # Check the queue every 5 seconds
-QUEUE_CHECKER_TIME = 5000 # ms
+QUEUE_CHECKER_TIME = 2000 # ms
 
 # Event handler for watchdog
 class PDFHandler(FileSystemEventHandler):
@@ -118,7 +118,7 @@ class App:
 
         self.log(f"System Ready. Watching: {os.path.abspath(WATCH_FOLDER)}")
 
-        # periodic scan of folder if watchdog fails-
+        # periodic scan of folder if watchdog fails
         self.last_scan = time.time()
 
         # Start the queue checker loop
@@ -137,6 +137,7 @@ class App:
 
         if not self.odoo:
             self.log("Odoo client unavailable. Check credentials in .env", "error")
+            logging.log(logging.ERROR, "Odoo client unavailable. Check credentials in .env", "error")
             self.status_label.config(text="Status: ODOO CONNECTION ERROR", fg="red")
             return
 
