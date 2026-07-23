@@ -1,12 +1,14 @@
 import smtplib
 from email.message import EmailMessage
 from pathlib import Path
+import os
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 
-EMAIL = "skbcfacturen@gmail.com"
-APP_PASSWORD = "jaiz hocu zazo cpib"
+EMAIL = os.getenv("EMAIL")
+APP_PASSWORD = os.getenv("APP_PASSWORD")
+
 
 def send_invoice(to_email: str, subject: str, body: str, pdf_path: str) -> tuple[bool, str]:
     msg = EmailMessage()

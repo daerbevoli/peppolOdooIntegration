@@ -370,6 +370,10 @@ if __name__ == "__main__":
     #
     # client = OdooClient(URL, DB, API_KEY)
 
+    TEST_URL = os.getenv("TEST_ODOO_URL")
+    TEST_DB = os.getenv("TEST_ODOO_DB")
+    TEST_API_KEY = os.getenv("TEST_ODOO_API_KEY")
+
     client = OdooClient(
             url="https://skbctesting.odoo.com",
             db="skbctesting",
