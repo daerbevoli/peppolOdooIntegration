@@ -40,23 +40,29 @@ def extract_buyer_info(page) -> dict[str, Any]:
     text = page.crop(right_box).extract_text() or ""
 
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    info = {"name": None, "street": None, "zip": None, "city": None, "phone": None, "vat": None}
+    info = {"name": None, "street": None, "zip": None, "city": None, "phone": None, "vat": None, "email": None}
 
     # 1. Regex patterns for specific identifiers
     vat_pattern = re.compile(r"BE\s?[\d.]{10,14}", re.IGNORECASE)
     phone_pattern = re.compile(r"(?:Tel|Mobile|GSM|Telefoon|Phone)[\s.:]*(?P<num>[\d.\s/-]{8,})", re.IGNORECASE)
+    email_pattern = re.compile(r"([A-Za-z0-9._%+-]+)\s*@\s*([A-Za-z0-9.-]+)\s*\.\s*([A-Za-z]{2,})", re.IGNORECASE)
     zip_city_pattern = re.compile(r"^(?P<zip>\d{4})\s+(?P<city>.+)$")
 
     for i, line in enumerate(lines):
         # Match VAT
         vat_match = vat_pattern.search(line)
         phone_match = phone_pattern.search(line)
+        email_match = email_pattern.search(line)
         if vat_match:
             info["vat"] = vat_match.group(0).replace(" ", "").replace(".", "")
             continue
 
         if phone_match:
             info["phone"] = phone_match.group("num").strip()
+            continue
+
+        if email_match:
+            info["email"] = email_match.group(0)
             continue
 
         # Match Address Anchor (e.g., 9200 DENDERMONDE)
@@ -182,7 +188,7 @@ def generate_filename(metadata: dict, buyer: dict) -> str:
 
 
 if __name__ == "__main__":
-    PDF_PATH = "love.pdf"
+    PDF_PATH = "AsmitaBv_20260123_7361.pdf"
     data = parse_invoice(PDF_PATH)
 
     print(data)

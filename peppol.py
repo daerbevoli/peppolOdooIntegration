@@ -1,11 +1,21 @@
 import base64
 import os
+from xmlrpc import client
+
 import requests
 from typing import Any
 from parse_pdf import parse_invoice, generate_filename
 
 class OdooClientError(Exception):
     pass
+
+class EmailSender:
+    """
+    Sender for sending the copy of the invoices.
+    """
+    def __init__(self, sender: str, password: str):
+        self.sender = sender
+        self.password = password
 
 class OdooClient:
     """
@@ -133,6 +143,14 @@ class OdooClient:
             raise ValueError(f"Country code '{code}' not found.")
         return ids[0]
 
+    def get_update_email(self, partner_id):
+        email = self.read(model="res.partner", ids=partner_id, fields=["email"])[0]["email"]
+        if email == buyer["email"]:
+            print(email)
+        else:
+            print(buyer["email"])
+
+
     def get_or_create_partner(self, customer_info: dict) -> int:
         vat = customer_info.get("vat")
         if not vat:
@@ -147,6 +165,7 @@ class OdooClient:
         if ids:
             return ids[0]
 
+
         # Create partner
         country_id = self.get_country_id("BE")
 
@@ -158,6 +177,7 @@ class OdooClient:
                 "city": customer_info.get("city"),
                 "zip": customer_info.get("zip"),
                 "phone": customer_info.get("phone") or False,
+                "email": customer_info.get("email") or False,
                 "country_id": country_id,
                 "vat": vat,
                 "lang": "nl_BE",
@@ -344,27 +364,40 @@ class OdooClient:
 
 if __name__ == "__main__":
 
-    URL = os.getenv("ODOO_URL")
-    DB = os.getenv("ODOO_DB")
-    API_KEY = os.getenv("ODOO_API_KEY")
+    # URL = os.getenv("ODOO_URL")
+    # DB = os.getenv("ODOO_DB")
+    # API_KEY = os.getenv("ODOO_API_KEY")
+    #
+    # client = OdooClient(URL, DB, API_KEY)
 
-    client = OdooClient(URL, DB, API_KEY)
+    client = OdooClient(
+            url="https://skbctesting.odoo.com",
+            db="skbctesting",
+            api_key="7e231b61aa3afc6c8c8fae66fcf60c35e22f4e2d"
+        )
 
-    # client = OdooClient(
-    #         url="https://skbctesting.odoo.com",
-    #         db="skbctesting",
-    #         api_key="7e231b61aa3afc6c8c8fae66fcf60c35e22f4e2d"
-    #     )
-    #
-    # print(client.connect())
-    #
-    # file_path = "love.pdf"
-    #
-    # # invoice_id, s, a = client.create_post_invoice(file_path)
-    #
-    # # print(client.create_post_invoice(file_path))
-    #
-    # # print("invoice id", invoice_id)
-    #
-    # print(client.send_peppol(19434))
-    #
+    print(client.connect())
+
+    file_path = "SkkbBv_20260721_8302.pdf"
+
+    # 1. Parse invoice and extract data
+    invoice_data = parse_invoice(file_path)
+    meta, buyer, _, totals = invoice_data["metadata"], invoice_data["buyer"], invoice_data["items"], invoice_data[
+        "totals"]
+
+    data = client.get_or_create_partner(buyer)
+    print(data)
+
+    email = client.read(model="res.partner", ids=data, fields=["email"])[0]["email"]
+
+    if email == buyer["email"]:
+        print(email)
+    else:
+        print(buyer["email"])
+
+
+    # print(client.create_post_invoice(file_path))
+
+    # print("invoice id", invoice_id)
+
+
