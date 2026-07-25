@@ -11,14 +11,16 @@ from tkinter import messagebox
 from watchdog.observers.polling import PollingObserver as Observer
 from watchdog.events import FileSystemEventHandler
 from dotenv import load_dotenv
+
+from email_sender import send_invoice
 from peppol import OdooClient
 
 # testing
-# BASE_DIR = "./"
-# WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
+BASE_DIR = "./"
+WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
 
-BASE_DIR = r"C:\Users\samee\OneDrive\Desktop\Facturen"
-WATCH_FOLDER = r"\\PC1\Factuur"
+# BASE_DIR = r"C:\Users\samee\OneDrive\Desktop\Facturen"
+# WATCH_FOLDER = r"\\PC1\Factuur"
 
 logging.basicConfig(
     filename= os.path.join(BASE_DIR, "peppol.log"),
@@ -256,37 +258,49 @@ class App:
         try:
             self.queue_busy = True
             self.log(f"Detected: {filename} - Waiting for file ready...")
-            logging.log(logging.INFO, f"Detected: {filename} - Waiting for file ready.")
+            logging.info( f"Detected: {filename} - Waiting for file ready.")
 
             if not wait_for_file_ready(file_path):
                 self.log(f"Error: File locked or inaccessible {filename}", "error")
-                logging.log(logging.ERROR, "File locked or inaccessible")
+                logging.error("File locked or inaccessible")
                 move_file(file_path, ERROR_FOLDER, filename)  # Move aside so we don't retry forever
                 return
 
             self.log(f"Processing: {filename}...")
 
-            invoice_id, new_filename, invoice_message = self.odoo.create_post_invoice(file_path)
-            if invoice_id is None:
-                self.log(invoice_message, "error")
+            # Create invoice
+            invoice_id, partner_email, new_filename, invoice_number, invoice_date = self.odoo.create_post_invoice(file_path)
+
+            if not invoice_id:
+                self.log(f"Invoice {invoice_number} already exists", "error")
                 move_file(file_path, ERROR_FOLDER, filename)
                 return
-            self.log(invoice_message)
+            self.log(f"Invoice {invoice_number} created & posted", "success")
+
+            # Send peppol
             success, peppol_message = self.odoo.send_peppol(invoice_id)
+            dest_folder = SENT_FOLDER if success else POSTED_FOLDER
+            log_level = logging.INFO if success else logging.ERROR
 
-            if success:
-                move_file(file_path, SENT_FOLDER, new_filename)
-                self.log(f"{peppol_message} {new_filename}", "success")
-                logging.log(logging.INFO, f"{peppol_message}: {new_filename}")
+            self.log(f"{peppol_message} {new_filename}", "success" if success else "error")
+            logging.log(log_level, f"{peppol_message}: {new_filename}")
+
+            if not partner_email:
+                self.log("No email on record for partner, email not sent", "error")
             else:
-                move_file(file_path, POSTED_FOLDER, new_filename)
-                self.log(f"{peppol_message} {new_filename}", "error")
-                logging.log(logging.ERROR, f"{peppol_message}: {new_filename}")
+                try:
+                    email_success, send_msg = send_invoice(partner_email, invoice_number, invoice_date, file_path)
+                except Exception as e:
+                    email_success, send_msg = False, f"Email send failed: {e}"
 
+                self.log(f"{send_msg}", "success" if email_success else "error")
+                logging.log(logging.INFO if email_success else logging.ERROR, f"{send_msg}")
+
+            move_file(file_path, dest_folder, new_filename)
 
         except Exception as e:
             self.log(f"Error processing {filename}: Manual intervention required", "error")
-            logging.log(logging.ERROR, f" exception error {filename}: {str(e)}",)
+            logging.error(f" exception error {filename}: {str(e)}")
             move_file(file_path, ERROR_FOLDER, filename)
         finally:
             self.queue_busy = False

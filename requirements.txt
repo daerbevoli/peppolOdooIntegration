@@ -2,7 +2,6 @@ certifi==2026.1.4
 cffi==2.0.0
 charset-normalizer==3.4.4
 cryptography==46.0.4
-dotenv==0.9.9
 idna==3.11
 pdfminer.six==20251230
 pdfplumber==0.11.9

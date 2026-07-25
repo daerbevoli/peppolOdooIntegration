@@ -2,6 +2,9 @@ import smtplib
 from email.message import EmailMessage
 from pathlib import Path
 import os
+from dotenv import load_dotenv
+
+load_dotenv(".env")
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
@@ -10,11 +13,22 @@ EMAIL = os.getenv("EMAIL")
 APP_PASSWORD = os.getenv("APP_PASSWORD")
 
 
-def send_invoice(to_email: str, subject: str, body: str, pdf_path: str) -> tuple[bool, str]:
+def send_invoice(to_email: str, invoice_num: str, invoice_date: str, pdf_path: str) -> tuple[bool, str]:
     msg = EmailMessage()
     msg["From"] = EMAIL
     msg["To"] = to_email
-    msg["Subject"] = subject
+    msg["Subject"] = f"Invoice {invoice_num}"
+
+    body = ("Dear customer, "
+            "\n"
+            "\nThank you for your purchase. "
+            f"\nPlease find a copy of your invoice {invoice_num} from {invoice_date} in the attachment. "
+            "\nFor further inquiries, please contact us at skbc.bv@gmail.com ."
+            "\n"
+            "\nKind regards,"
+            "\nSKBC bv"
+            "\n03 541 54 46")
+
     msg.set_content(body)
 
     pdf_path = Path(pdf_path)
@@ -32,7 +46,7 @@ def send_invoice(to_email: str, subject: str, body: str, pdf_path: str) -> tuple
             refused = smtp.send_message(msg)
             if refused:
                 return False, f"Recipient refused: {refused}"
-            return True, f"Invoice sent → {to_email}"
+            return True, f"Invoice sent via email to {to_email}"
     except smtplib.SMTPRecipientsRefused as e:
         return False, f"Recipient refused: {e.recipients}"
     except smtplib.SMTPAuthenticationError:
@@ -42,10 +56,3 @@ def send_invoice(to_email: str, subject: str, body: str, pdf_path: str) -> tuple
     except OSError as e:
         return False, f"Connection/timeout error: {e}"
 
-
-if __name__ == '__main__':
-    email = "eurostarmomomaki@gmail.com"
-    subject = "Invoice"
-    body = "Thank you for your invoice"
-    path = "AsmitaBv_20260123_7361.pdf"
-    send_invoice(to_email=email, subject=subject, body=body, pdf_path=path)
