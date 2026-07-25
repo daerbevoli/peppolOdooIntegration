@@ -22,7 +22,7 @@ def send_invoice(to_email: str, invoice_num: str, invoice_date: str, pdf_path: s
     body = ("Dear customer, "
             "\n"
             "\nThank you for your purchase. "
-            f"\nPlease find a copy of your invoice {invoice_num} from {invoice_date} in the attachment. "
+            f"\nPlease find a COPY of your invoice {invoice_num} from {invoice_date} in the attachment. "
             "\nFor further inquiries, please contact us at skbc.bv@gmail.com ."
             "\n"
             "\nKind regards,"
