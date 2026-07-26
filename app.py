@@ -16,11 +16,11 @@ from email_sender import send_invoice
 from peppol import OdooClient
 
 # testing
-BASE_DIR = "./"
-WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
+# BASE_DIR = "./"
+# WATCH_FOLDER = os.path.join(BASE_DIR, "Factuur")
 
-# BASE_DIR = r"C:\Users\samee\OneDrive\Desktop\Facturen"
-# WATCH_FOLDER = r"\\PC1\Factuur"
+BASE_DIR = r"C:\Users\samee\OneDrive\Desktop\Facturen"
+WATCH_FOLDER = r"\\PC1\Factuur"
 
 logging.basicConfig(
     filename= os.path.join(BASE_DIR, "peppol.log"),
@@ -81,6 +81,12 @@ class App:
         self.URL = os.getenv("ODOO_URL")
         self.DB = os.getenv("ODOO_DB")
         self.API_KEY = os.getenv("ODOO_API_KEY")
+
+        # Test
+        # self.URL = os.getenv("TEST_ODOO_URL")
+        # self.DB = os.getenv("TEST_ODOO_DB")
+        # self.API_KEY = os.getenv("TEST_ODOO_API_KEY")
+
         self.odoo = None
 
         try:
@@ -225,7 +231,7 @@ class App:
         try:
             current_time = time.time()
 
-            # Manual scan every 15 minutes in case Watchdog failed
+            # Manual scan every 30 minutes in case Watchdog failed
             if current_time - self.last_scan > (60 * 30):
                 if self.is_running and os.path.exists(WATCH_FOLDER):
                     self.log(">>> Running periodic scan...", "gray")
@@ -333,7 +339,7 @@ if __name__ == "__main__":
 
 
     def on_closing():
-        if messagebox.askokcancel("Quit", "DO NOT CLOSE UNLESS ADMIN"):
+        if messagebox.askokcancel("Quit", "DO NOT CLOSE"):
             try:
                 app.stop_monitoring()
             except Exception as e:
