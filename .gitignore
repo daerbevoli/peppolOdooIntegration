@@ -1,3 +1,9 @@
 .venv
 venv
 .env
+
+# PyInstaller build artifacts
+build/
+dist/
+__pycache__/
+*.pyc
