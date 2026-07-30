@@ -9,11 +9,10 @@ load_dotenv(".env")
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 
-EMAIL = os.getenv("EMAIL")
-APP_PASSWORD = os.getenv("APP_PASSWORD")
-
-
 def send_invoice(to_email: str, invoice_num: str, invoice_date: str, pdf_path: str) -> tuple[bool, str]:
+    EMAIL = os.getenv("EMAIL")
+    APP_PASSWORD = os.getenv("APP_PASSWORD")
+
     msg = EmailMessage()
     msg["From"] = EMAIL
     msg["To"] = to_email
@@ -27,7 +26,7 @@ def send_invoice(to_email: str, invoice_num: str, invoice_date: str, pdf_path: s
             "\n"
             "\nKind regards,"
             "\nSKBC bv"
-            "\n03 541 54 46")
+            "\n")
 
     msg.set_content(body)
 
@@ -55,4 +54,3 @@ def send_invoice(to_email: str, invoice_num: str, invoice_date: str, pdf_path: s
         return False, f"SMTP error: {e}"
     except OSError as e:
         return False, f"Connection/timeout error: {e}"
-
